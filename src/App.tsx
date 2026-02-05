@@ -34,6 +34,7 @@ function App() {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // We need a force update because Map mutation doesn't trigger re-render
   const [, setForceUpdate] = useState(0)
@@ -64,7 +65,14 @@ function App() {
 
         // Load from robust Electron store
         if (window.electronAPI?.getStoreValue) {
-            const storedRooms = await window.electronAPI.getStoreValue('p2p-rooms')
+            let storedRooms = await window.electronAPI.getStoreValue('p2p-rooms')
+            
+            // Migration: If store is empty but we have local rooms, save them!
+            if ((!storedRooms || !Array.isArray(storedRooms) || storedRooms.length === 0) && savedRooms.length > 0) {
+                 await window.electronAPI.setStoreValue('p2p-rooms', savedRooms)
+                 storedRooms = savedRooms
+            }
+
             if (storedRooms && Array.isArray(storedRooms)) setRooms(storedRooms)
 
             const storedUser = await window.electronAPI.getStoreValue('p2p-username')
@@ -155,6 +163,7 @@ function App() {
   }
 
   const startCamera = async (audioDeviceId?: string, videoDeviceId?: string) => {
+    setError(null)
     try {
       console.log("startCamera: Requesting stream with devices:", { audio: audioDeviceId, video: videoDeviceId })
       
@@ -179,6 +188,10 @@ function App() {
         stream = await navigator.mediaDevices.getUserMedia(constraints)
       } catch (err: any) {
         console.warn("startCamera: Primary constraints failed:", err)
+        if (err.name === 'NotReadableError') {
+             setError("Camera is in use by another application. Please close other apps (including old P2P-Cord instances) and restart.")
+             return
+        }
         if (err.name === 'OverconstrainedError' || err.name === 'NotFoundError') {
             console.log("startCamera: Falling back to default devices")
             try {
@@ -187,7 +200,11 @@ function App() {
                     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
                     video: true 
                 })
-            } catch (retryErr) {
+            } catch (retryErr: any) {
+                 if (retryErr.name === 'NotReadableError') {
+                     setError("Camera is in use by another application.")
+                     return
+                 }
                  console.warn("startCamera: Fallback (A+V) failed, trying Audio only", retryErr)
                  try {
                      // Fallback to Audio ONLY
@@ -587,6 +604,12 @@ function App() {
         </div>
 
         <div className="flex-1 relative bg-black flex flex-col min-h-0">
+             {error && (
+                 <div className="bg-red-900/80 text-white px-4 py-2 text-sm border-b border-red-700 flex items-center justify-between">
+                     <span>{error}</span>
+                     <button onClick={() => setError(null)} className="hover:bg-red-800 rounded px-2">✕</button>
+                 </div>
+             )}
              {activeRoom ? (
                  <>
                    <VideoGrid 
