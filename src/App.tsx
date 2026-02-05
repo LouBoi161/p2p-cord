@@ -63,6 +63,14 @@ function App() {
         const savedRooms = JSON.parse(localStorage.getItem('p2p-rooms') || '[]')
         setRooms(savedRooms)
 
+        if (!window.electronAPI) {
+            console.error("Electron API missing")
+            // We don't show fatal error to user immediately to avoid scaring them if it's just a dev glitches,
+            // but for production this is critical. 
+            // setError("Critical: Electron API failed to load.") 
+            return
+        }
+
         // Load from robust Electron store
         if (window.electronAPI?.getStoreValue) {
             let storedRooms = await window.electronAPI.getStoreValue('p2p-rooms')

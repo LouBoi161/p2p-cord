@@ -28,6 +28,10 @@ function getStore() {
 
 function setStore(key: string, value: any) {
     try {
+        const dir = path.dirname(storePath)
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true })
+        }
         const store = getStore()
         store[key] = value
         fs.writeFileSync(storePath, JSON.stringify(store, null, 2))
