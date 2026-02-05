@@ -25,7 +25,21 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
   }
 
   const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(console.error)
+      } else {
+          // Fallback
+          const textArea = document.createElement("textarea")
+          textArea.value = text
+          document.body.appendChild(textArea)
+          textArea.select()
+          try {
+             document.execCommand('copy')
+          } catch (err) {
+             console.error('Fallback copy failed', err)
+          }
+          document.body.removeChild(textArea)
+      }
   }
 
   return (
@@ -38,7 +52,7 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
         {rooms.map(room => (
           <div
             key={room}
-            className={`group w-full flex items-center gap-2 rounded transition-colors pr-2 ${
+            className={`group w-full flex items-center gap-1 rounded transition-colors pr-1 ${
               activeRoom === room 
                 ? 'bg-gray-700 text-white' 
                 : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
@@ -54,14 +68,14 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
             
             <button
                 onClick={(e) => { e.stopPropagation(); copyToClipboard(room) }}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:text-white transition-opacity"
+                className="p-2 text-gray-500 hover:text-white hover:bg-gray-600 rounded-full transition-colors"
                 title="Copy Room ID"
             >
                 <Copy size={14} />
             </button>
             <button
                 onClick={(e) => { e.stopPropagation(); onDeleteRoom(room) }}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
+                className="p-2 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-full transition-colors"
                 title="Remove Room"
             >
                 <Trash2 size={14} />
