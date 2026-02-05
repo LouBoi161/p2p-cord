@@ -26,17 +26,20 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
   }
 
   const copyToClipboard = (text: string) => {
-      // Use Electron API for reliable copying
-      if (window.electronAPI && window.electronAPI.copyToClipboard) {
-          window.electronAPI.copyToClipboard(text)
-      } else {
-          // Fallback for browser (if running outside electron for dev)
-          navigator.clipboard.writeText(text).catch(console.error)
-      }
-      
-      // Visual feedback
+      // Immediate visual feedback
       setCopiedRoom(text)
       setTimeout(() => setCopiedRoom(null), 2000)
+
+      // Logic
+      try {
+        if (window.electronAPI && window.electronAPI.copyToClipboard) {
+            window.electronAPI.copyToClipboard(text)
+        } else {
+            navigator.clipboard.writeText(text).catch(console.error)
+        }
+      } catch (err) {
+        console.error("Copy failed", err)
+      }
   }
 
   return (
@@ -56,30 +59,41 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
             }`}
           >
             <button
+                type="button"
                 onClick={() => onSelectRoom(room)}
-                className="flex-1 text-left px-3 py-2 flex items-center gap-2 overflow-hidden"
+                className="flex-1 min-w-0 text-left px-3 py-2 flex items-center gap-2 overflow-hidden outline-none focus:bg-gray-600 rounded"
             >
                 <Hash size={18} className="shrink-0" />
                 <span className="truncate">{room}</span>
             </button>
             
             <button
-                onClick={(e) => { e.stopPropagation(); copyToClipboard(room) }}
-                className={`p-2 rounded-full transition-colors ${
+                type="button"
+                onClick={(e) => { 
+                    e.preventDefault();
+                    e.stopPropagation(); 
+                    copyToClipboard(room);
+                }}
+                className={`relative z-20 shrink-0 p-2 rounded-full transition-all cursor-pointer active:scale-90 ${
                     copiedRoom === room 
                     ? 'text-green-500 bg-gray-800' 
                     : 'text-gray-500 hover:text-white hover:bg-gray-600'
                 }`}
                 title="Copy Room ID"
             >
-                {copiedRoom === room ? <Check size={14} /> : <Copy size={14} />}
+                {copiedRoom === room ? <Check size={14} className="pointer-events-none" /> : <Copy size={14} className="pointer-events-none" />}
             </button>
             <button
-                onClick={(e) => { e.stopPropagation(); onDeleteRoom(room) }}
-                className="p-2 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-full transition-colors"
+                type="button"
+                onClick={(e) => { 
+                    e.preventDefault();
+                    e.stopPropagation(); 
+                    onDeleteRoom(room);
+                }}
+                className="relative z-20 shrink-0 p-2 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-full transition-all cursor-pointer active:scale-90"
                 title="Remove Room"
             >
-                <Trash2 size={14} />
+                <Trash2 size={14} className="pointer-events-none" />
             </button>
           </div>
         ))}

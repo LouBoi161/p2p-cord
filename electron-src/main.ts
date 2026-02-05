@@ -171,3 +171,12 @@ ipcMain.on('send-message', (_event, { peerId, message }) => {
         socket.write(Buffer.from(message))
     }
 })
+
+ipcMain.on('copy-to-clipboard', (_event, text) => {
+    try {
+        const { clipboard } = require('electron')
+        clipboard.writeText(text)
+    } catch (e) {
+        console.error('Clipboard error:', e)
+    }
+})
