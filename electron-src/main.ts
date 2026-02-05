@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
 import path from 'path'
 import Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
@@ -51,7 +51,7 @@ function createWindow() {
 
   // Handle permissions
   win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'audioCapture', 'videoCapture', 'display-capture']
+    const allowedPermissions = ['media', 'audioCapture', 'videoCapture', 'display-capture', 'clipboard-read', 'clipboard-write']
     console.log(`Permission requested: ${permission}`)
     if (allowedPermissions.includes(permission)) {
       callback(true)
@@ -59,6 +59,19 @@ function createWindow() {
       console.warn(`Permission denied: ${permission}`)
       callback(false)
     }
+  })
+
+  // Handle Screen Sharing Request
+  win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      // Grant access to the first screen available
+      if (sources.length > 0) {
+          callback({ video: sources[0], audio: 'loopback' })
+      } else {
+          // No screens available?
+          console.error("No screens found for sharing")
+      }
+    }).catch(console.error)
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {
