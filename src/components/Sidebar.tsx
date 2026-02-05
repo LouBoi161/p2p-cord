@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, Hash, User, Settings, Copy, Trash2 } from 'lucide-react'
+import { Plus, Hash, User, Settings, Copy, Trash2, Check } from 'lucide-react'
 
 interface SidebarProps {
   rooms: string[]
@@ -14,6 +14,7 @@ interface SidebarProps {
 export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom, onDeleteRoom, onOpenSettings }: SidebarProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
+  const [copiedRoom, setCopiedRoom] = useState<string | null>(null)
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,21 +26,17 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
   }
 
   const copyToClipboard = (text: string) => {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).catch(console.error)
+      // Use Electron API for reliable copying
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+          window.electronAPI.copyToClipboard(text)
       } else {
-          // Fallback
-          const textArea = document.createElement("textarea")
-          textArea.value = text
-          document.body.appendChild(textArea)
-          textArea.select()
-          try {
-             document.execCommand('copy')
-          } catch (err) {
-             console.error('Fallback copy failed', err)
-          }
-          document.body.removeChild(textArea)
+          // Fallback for browser (if running outside electron for dev)
+          navigator.clipboard.writeText(text).catch(console.error)
       }
+      
+      // Visual feedback
+      setCopiedRoom(text)
+      setTimeout(() => setCopiedRoom(null), 2000)
   }
 
   return (
@@ -68,10 +65,14 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
             
             <button
                 onClick={(e) => { e.stopPropagation(); copyToClipboard(room) }}
-                className="p-2 text-gray-500 hover:text-white hover:bg-gray-600 rounded-full transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                    copiedRoom === room 
+                    ? 'text-green-500 bg-gray-800' 
+                    : 'text-gray-500 hover:text-white hover:bg-gray-600'
+                }`}
                 title="Copy Room ID"
             >
-                <Copy size={14} />
+                {copiedRoom === room ? <Check size={14} /> : <Copy size={14} />}
             </button>
             <button
                 onClick={(e) => { e.stopPropagation(); onDeleteRoom(room) }}
