@@ -39,8 +39,6 @@ export default defineConfig({
         // Shortcut of `build.rollupOptions.input`
         input: 'electron-src/preload.ts',
       },
-      // Optional: Use Node.js API in the Renderer process
-      renderer: {},
     }),
   ],
   resolve: {

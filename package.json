@@ -1,6 +1,6 @@
 {
   "name": "p2p-cord",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.2",
   "description": "",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -9,8 +9,27 @@
     "preview": "vite preview"
   },
   "keywords": [],
-  "author": "",
+  "author": "LouBoi161",
   "license": "ISC",
+  "build": {
+    "appId": "com.louboi161.p2pcord",
+    "productName": "P2P-Cord",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": "AppImage",
+      "category": "Communication"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  },
   "devDependencies": {
     "@types/node": "^25.2.0",
     "@types/react": "^19.2.10",
