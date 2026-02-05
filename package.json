@@ -1,6 +1,6 @@
 {
   "name": "p2p-cord",
-  "version": "1.0.0-beta.7",
+  "version": "1.0.0-beta.8",
   "description": "",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -24,10 +24,12 @@
     ],
     "linux": {
       "target": "AppImage",
-      "category": "Communication"
+      "category": "Communication",
+      "icon": "build/icon.png"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     }
   },
   "devDependencies": {
