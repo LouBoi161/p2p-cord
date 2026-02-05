@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('peer-connected', callback),
   onPeerDisconnected: (callback: (event: any, peerId: string) => void) => 
     ipcRenderer.on('peer-disconnected', callback),
+  getStoreValue: (key: string) => ipcRenderer.invoke('get-store-value', key),
+  setStoreValue: (key: string, value: any) => ipcRenderer.send('set-store-value', key, value),
 })

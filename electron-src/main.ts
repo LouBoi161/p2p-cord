@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import crypto from 'crypto'
@@ -11,6 +12,29 @@ let win: BrowserWindow | null
 // Map peerId -> socket
 const peers = new Map<string, any>()
 let swarm: any
+
+const storePath = path.join(app.getPath('userData'), 'store.json')
+console.log("Store path:", storePath)
+
+function getStore() {
+    try {
+        if (!fs.existsSync(storePath)) return {}
+        return JSON.parse(fs.readFileSync(storePath, 'utf-8'))
+    } catch (e) {
+        console.error("Error reading store", e)
+        return {}
+    }
+}
+
+function setStore(key: string, value: any) {
+    try {
+        const store = getStore()
+        store[key] = value
+        fs.writeFileSync(storePath, JSON.stringify(store, null, 2))
+    } catch (e) {
+        console.error("Error writing store", e)
+    }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -180,4 +204,12 @@ ipcMain.on('copy-to-clipboard', (_event, text) => {
     } catch (e) {
         console.error('Clipboard error:', e)
     }
+})
+
+ipcMain.handle('get-store-value', (_event, key) => {
+    return getStore()[key]
+})
+
+ipcMain.on('set-store-value', (_event, key, value) => {
+    setStore(key, value)
 })

@@ -46,6 +46,9 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('p2p-username', userName)
+    if (window.electronAPI?.setStoreValue) {
+        window.electronAPI.setStoreValue('p2p-username', userName)
+    }
     userNameRef.current = userName
   }, [userName])
 
@@ -54,8 +57,30 @@ function App() {
   }, [isVideoEnabled])
 
   useEffect(() => {
-    const savedRooms = JSON.parse(localStorage.getItem('p2p-rooms') || '[]')
-    setRooms(savedRooms)
+    const loadSettings = async () => {
+        // Fallback or initial load from localStorage
+        const savedRooms = JSON.parse(localStorage.getItem('p2p-rooms') || '[]')
+        setRooms(savedRooms)
+
+        // Load from robust Electron store
+        if (window.electronAPI?.getStoreValue) {
+            const storedRooms = await window.electronAPI.getStoreValue('p2p-rooms')
+            if (storedRooms && Array.isArray(storedRooms)) setRooms(storedRooms)
+
+            const storedUser = await window.electronAPI.getStoreValue('p2p-username')
+            if (storedUser) setUserName(storedUser)
+            
+            const aIn = await window.electronAPI.getStoreValue('p2p-audio-input')
+            if (aIn) setSelectedAudioDevice(aIn)
+
+            const vIn = await window.electronAPI.getStoreValue('p2p-video-input')
+            if (vIn) setSelectedVideoDevice(vIn)
+
+            const aOut = await window.electronAPI.getStoreValue('p2p-audio-output')
+            if (aOut) setSelectedAudioOutputDevice(aOut)
+        }
+    }
+    loadSettings()
     
     // Load devices
     loadDevices()
@@ -255,12 +280,15 @@ function App() {
       if (kind === 'audioinput') {
           setSelectedAudioDevice(deviceId)
           localStorage.setItem('p2p-audio-input', deviceId)
+          window.electronAPI?.setStoreValue('p2p-audio-input', deviceId)
       } else if (kind === 'videoinput') {
           setSelectedVideoDevice(deviceId)
           localStorage.setItem('p2p-video-input', deviceId)
+          window.electronAPI?.setStoreValue('p2p-video-input', deviceId)
       } else if (kind === 'audiooutput') {
           setSelectedAudioOutputDevice(deviceId)
           localStorage.setItem('p2p-audio-output', deviceId)
+          window.electronAPI?.setStoreValue('p2p-audio-output', deviceId)
       }
   }
 
@@ -353,6 +381,9 @@ function App() {
       const newRooms = [...rooms, room]
       setRooms(newRooms)
       localStorage.setItem('p2p-rooms', JSON.stringify(newRooms))
+      if (window.electronAPI?.setStoreValue) {
+          window.electronAPI.setStoreValue('p2p-rooms', newRooms)
+      }
     }
     setActiveRoom(room)
     
@@ -363,6 +394,9 @@ function App() {
       const newRooms = rooms.filter(r => r !== room)
       setRooms(newRooms)
       localStorage.setItem('p2p-rooms', JSON.stringify(newRooms))
+      if (window.electronAPI?.setStoreValue) {
+          window.electronAPI.setStoreValue('p2p-rooms', newRooms)
+      }
       if (activeRoom === room) {
           handleLeaveRoom()
       }
