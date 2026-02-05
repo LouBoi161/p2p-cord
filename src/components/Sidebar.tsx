@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, Hash, User, Settings } from 'lucide-react'
+import { Plus, Hash, User, Settings, Copy, Trash2 } from 'lucide-react'
 
 interface SidebarProps {
   rooms: string[]
@@ -7,10 +7,11 @@ interface SidebarProps {
   userName: string
   onJoinRoom: (room: string) => void
   onSelectRoom: (room: string) => void
+  onDeleteRoom: (room: string) => void
   onOpenSettings: () => void
 }
 
-export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom, onOpenSettings }: SidebarProps) {
+export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom, onDeleteRoom, onOpenSettings }: SidebarProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
   
@@ -23,6 +24,10 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
     }
   }
 
+  const copyToClipboard = (text: string) => {
+      navigator.clipboard.writeText(text)
+  }
+
   return (
     <div className="w-64 bg-gray-900 flex flex-col h-full border-r border-gray-800">
       <div className="p-4 border-b border-gray-800 font-bold text-xl text-indigo-500">
@@ -31,18 +36,37 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
       
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {rooms.map(room => (
-          <button
+          <div
             key={room}
-            onClick={() => onSelectRoom(room)}
-            className={`w-full text-left px-3 py-2 rounded flex items-center gap-2 transition-colors ${
+            className={`group w-full flex items-center gap-2 rounded transition-colors pr-2 ${
               activeRoom === room 
                 ? 'bg-gray-700 text-white' 
                 : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
             }`}
           >
-            <Hash size={18} />
-            <span className="truncate">{room}</span>
-          </button>
+            <button
+                onClick={() => onSelectRoom(room)}
+                className="flex-1 text-left px-3 py-2 flex items-center gap-2 overflow-hidden"
+            >
+                <Hash size={18} className="shrink-0" />
+                <span className="truncate">{room}</span>
+            </button>
+            
+            <button
+                onClick={(e) => { e.stopPropagation(); copyToClipboard(room) }}
+                className="opacity-0 group-hover:opacity-100 p-1 hover:text-white transition-opacity"
+                title="Copy Room ID"
+            >
+                <Copy size={14} />
+            </button>
+            <button
+                onClick={(e) => { e.stopPropagation(); onDeleteRoom(room) }}
+                className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
+                title="Remove Room"
+            >
+                <Trash2 size={14} />
+            </button>
+          </div>
         ))}
       </div>
 

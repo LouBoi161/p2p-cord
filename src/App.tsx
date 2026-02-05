@@ -279,7 +279,13 @@ function App() {
     const peer = new Peer({
       initiator,
       trickle: false,
-      stream: activeStreamRef.current || undefined
+      stream: activeStreamRef.current || undefined,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
     })
 
     peer.on('signal', (data: any) => {
@@ -336,6 +342,9 @@ function App() {
   }
 
   const handleJoinRoom = (room: string) => {
+    if (!room || !room.trim()) return // Validation
+    if (activeRoom === room) return
+    
     if (activeRoom) {
       handleLeaveRoom()
     }
@@ -348,6 +357,15 @@ function App() {
     setActiveRoom(room)
     
     window.electronAPI.joinRoom(room)
+  }
+
+  const handleDeleteRoom = (room: string) => {
+      const newRooms = rooms.filter(r => r !== room)
+      setRooms(newRooms)
+      localStorage.setItem('p2p-rooms', JSON.stringify(newRooms))
+      if (activeRoom === room) {
+          handleLeaveRoom()
+      }
   }
 
   const handleLeaveRoom = () => {
@@ -510,18 +528,24 @@ function App() {
         userName={userName}
         onJoinRoom={handleJoinRoom}
         onSelectRoom={handleJoinRoom} 
+        onDeleteRoom={handleDeleteRoom}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
       
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 border-b border-gray-800 flex items-center px-4 bg-gray-900 shadow-sm z-10">
+        <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 shadow-sm z-10">
             {activeRoom ? (
-                <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold tracking-tight"># {activeRoom}</span>
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                    </span>
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl font-bold tracking-tight"># {activeRoom}</span>
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                    </div>
+                    <div className="text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-0.5">
+                        {peers.size} Peer{peers.size !== 1 ? 's' : ''} Connected
+                    </div>
                 </div>
             ) : (
                 <div className="text-gray-400 font-medium">Select or join a room</div>
