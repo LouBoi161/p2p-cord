@@ -508,13 +508,19 @@ function App() {
         if (activeStreamRef.current) {
            const oldVideoTrack = activeStreamRef.current.getVideoTracks()[0]
            
-           // Replace track in all peers
-           for (const p of peersRef.current.values()) {
-             p.peer.replaceTrack(oldVideoTrack, screenTrack, activeStreamRef.current)
+           if (oldVideoTrack) {
+               // Replace track in all peers
+               for (const p of peersRef.current.values()) {
+                 p.peer.replaceTrack(oldVideoTrack, screenTrack, activeStreamRef.current)
+               }
+               activeStreamRef.current.removeTrack(oldVideoTrack)
+           } else {
+               // We are adding a video track where there was none
+               for (const p of peersRef.current.values()) {
+                   p.peer.addTrack(screenTrack, activeStreamRef.current)
+               }
            }
 
-           // Update local state
-           activeStreamRef.current.removeTrack(oldVideoTrack)
            activeStreamRef.current.addTrack(screenTrack)
            setLocalStream(activeStreamRef.current)
            setIsScreenSharing(true)
@@ -534,22 +540,30 @@ function App() {
     const screenTrack = activeStreamRef.current.getVideoTracks()[0]
     const cameraTrack = cameraStreamRef.current.getVideoTracks()[0]
 
-    // Replace track in all peers
-    for (const p of peersRef.current.values()) {
-      p.peer.replaceTrack(screenTrack, cameraTrack, activeStreamRef.current)
-    }
+    if (screenTrack) {
+        if (cameraTrack) {
+            // Replace track in all peers
+            for (const p of peersRef.current.values()) {
+              p.peer.replaceTrack(screenTrack, cameraTrack, activeStreamRef.current)
+            }
+            activeStreamRef.current.removeTrack(screenTrack)
+            activeStreamRef.current.addTrack(cameraTrack)
 
-    screenTrack.stop()
-    activeStreamRef.current.removeTrack(screenTrack)
-    activeStreamRef.current.addTrack(cameraTrack)
-    
-    // Restore video enabled state matches the camera state? 
-    // We assume camera was enabled or we check the state. 
-    // Usually we want to ensure it's enabled or keep previous state.
-    if (!isVideoEnabled) {
-        cameraTrack.enabled = false
-    } else {
-        cameraTrack.enabled = true
+            // Restore video enabled state
+            if (!isVideoEnabled) {
+                cameraTrack.enabled = false
+            } else {
+                cameraTrack.enabled = true
+            }
+        } else {
+            // Revert to audio-only (remove video track)
+            for (const p of peersRef.current.values()) {
+                p.peer.removeTrack(screenTrack, activeStreamRef.current)
+            }
+            activeStreamRef.current.removeTrack(screenTrack)
+        }
+        
+        screenTrack.stop()
     }
 
     setLocalStream(activeStreamRef.current)
