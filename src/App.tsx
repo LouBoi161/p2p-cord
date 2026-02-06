@@ -49,6 +49,10 @@ function App() {
   const activeStreamRef = useRef<MediaStream | null>(null) // Stores the currently being sent stream (cam or screen)
   const userNameRef = useRef(userName)
   const isVideoEnabledRef = useRef(isVideoEnabled)
+  
+  const selectedAudioDeviceRef = useRef(selectedAudioDevice)
+  const selectedVideoDeviceRef = useRef(selectedVideoDevice)
+  const selectedAudioOutputDeviceRef = useRef(selectedAudioOutputDevice)
 
   useEffect(() => {
     localStorage.setItem('p2p-username', userName)
@@ -61,6 +65,12 @@ function App() {
   useEffect(() => {
       isVideoEnabledRef.current = isVideoEnabled
   }, [isVideoEnabled])
+  
+  useEffect(() => {
+      selectedAudioDeviceRef.current = selectedAudioDevice
+      selectedVideoDeviceRef.current = selectedVideoDevice
+      selectedAudioOutputDeviceRef.current = selectedAudioOutputDevice
+  }, [selectedAudioDevice, selectedVideoDevice, selectedAudioOutputDevice])
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -170,22 +180,26 @@ function App() {
           const video = devs.filter(d => d.kind === 'videoinput')
           const audioOutput = devs.filter(d => d.kind === 'audiooutput')
           
+          const currentAudio = selectedAudioDeviceRef.current
+          const currentVideo = selectedVideoDeviceRef.current
+          const currentAudioOutput = selectedAudioOutputDeviceRef.current
+
           // Check if selected devices still exist, otherwise reset to default
-          if (selectedAudioDevice && !audio.find(d => d.deviceId === selectedAudioDevice)) {
+          if (currentAudio && !audio.find(d => d.deviceId === currentAudio)) {
               setSelectedAudioDevice(audio[0]?.deviceId || '')
-          } else if (!selectedAudioDevice && audio.length > 0) {
+          } else if (!currentAudio && audio.length > 0) {
               setSelectedAudioDevice(audio[0].deviceId)
           }
 
-          if (selectedVideoDevice && !video.find(d => d.deviceId === selectedVideoDevice)) {
+          if (currentVideo && !video.find(d => d.deviceId === currentVideo)) {
               setSelectedVideoDevice(video[0]?.deviceId || '')
-          } else if (!selectedVideoDevice && video.length > 0) {
+          } else if (!currentVideo && video.length > 0) {
               setSelectedVideoDevice(video[0].deviceId)
           }
 
-          if (selectedAudioOutputDevice && !audioOutput.find(d => d.deviceId === selectedAudioOutputDevice)) {
+          if (currentAudioOutput && !audioOutput.find(d => d.deviceId === currentAudioOutput)) {
                setSelectedAudioOutputDevice(audioOutput[0]?.deviceId || '')
-          } else if (!selectedAudioOutputDevice && audioOutput.length > 0) {
+          } else if (!currentAudioOutput && audioOutput.length > 0) {
                setSelectedAudioOutputDevice(audioOutput[0].deviceId)
           }
 
