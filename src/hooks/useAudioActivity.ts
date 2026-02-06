@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-export function useAudioActivity(stream: MediaStream | null) {
+export function useAudioActivity(stream: MediaStream | null, threshold: number = 0) {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -27,17 +27,13 @@ export function useAudioActivity(stream: MediaStream | null) {
         const audioContext = new AudioContextClass()
         audioContextRef.current = audioContext
 
-        console.log('AudioContext created, state:', audioContext.state)
-
-        // Ensure context is running (browsers often start suspended)
         if (audioContext.state === 'suspended') {
             await audioContext.resume()
-            console.log('AudioContext resumed, new state:', audioContext.state)
         }
 
         const analyser = audioContext.createAnalyser()
-        analyser.fftSize = 512 // Increased for better resolution
-        analyser.smoothingTimeConstant = 0.5
+        analyser.fftSize = 512
+        analyser.smoothingTimeConstant = 0.3
         analyserRef.current = analyser
 
         const source = audioContext.createMediaStreamSource(stream)
@@ -50,32 +46,29 @@ export function useAudioActivity(stream: MediaStream | null) {
         const checkAudio = () => {
           if (!analyserRef.current) return
 
-          // Use Time Domain Data for more accurate waveform/volume detection
           analyserRef.current.getByteTimeDomainData(dataArray)
 
-          // Calculate RMS (Root Mean Square) volume
           let sum = 0
           for (let i = 0; i < bufferLength; i++) {
-            const x = dataArray[i] - 128 // Center on 0 (128 is silence)
+            const x = dataArray[i] - 128
             sum += x * x
           }
           const rms = Math.sqrt(sum / bufferLength)
           
-          // Debug logs (throttle to avoid spamming too much, maybe once every 60 frames approx 1 sec)
-          // if (Math.random() < 0.01) console.log('Current RMS:', rms)
-
-          // Threshold for "speaking"
-          // RMS usually stays below 1-2 for silence/noise. 
-          // 5 is a safe threshold for "voice detection".
-          const threshold = 3
+          // Normalize RMS roughly to 0-100 range.
+          // Max RMS for a square wave is 128. Sine wave is ~90.
+          // Normal speech usually hovers around 5-20 RMS.
+          // We amplify it slightly for better UI mapping.
+          // Factor 2.5 means RMS 40 (loud speech) -> 100%.
+          const currentLevel = Math.min(100, rms * 2.5)
           
-          const speaking = rms > threshold
-          setIsSpeaking(prev => {
-              if (prev !== speaking) {
-                  // console.log('Speaking state changed:', speaking, 'RMS:', rms)
-              }
-              return speaking
-          })
+          // If threshold is 0, we consider it "Always Open" (but still need minimal noise floor check)
+          // Let's say noise floor is 1%.
+          const effectiveThreshold = threshold === 0 ? 1 : threshold
+          
+          const speaking = currentLevel > effectiveThreshold
+          
+          setIsSpeaking(speaking)
           animationFrameRef.current = requestAnimationFrame(checkAudio)
         }
 
@@ -98,7 +91,7 @@ export function useAudioActivity(stream: MediaStream | null) {
         audioContextRef.current.close()
       }
     }
-  }, [stream])
+  }, [stream, threshold])
 
   return isSpeaking
 }

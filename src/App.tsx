@@ -37,22 +37,62 @@ function App() {
   
   // Media States
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Quality Settings State
+  const [cameraBitrate, setCameraBitrate] = useState<number>(1500)
+  const [screenBitrate, setScreenBitrate] = useState<number>(4000)
+  const [audioBitrate, setAudioBitrate] = useState<number>(64)
+
+  const [cameraBitrateIncoming, setCameraBitrateIncoming] = useState<number>(1500)
+  const [screenBitrateIncoming, setScreenBitrateIncoming] = useState<number>(4000)
+  const [audioBitrateIncoming, setAudioBitrateIncoming] = useState<number>(64)
+  
+  // Voice Processing State
+  const [noiseSuppression, setNoiseSuppression] = useState(true)
+  const [echoCancellation, setEchoCancellation] = useState(true)
+  const [autoGainControl, setAutoGainControl] = useState(true)
+  const [vadThreshold, setVadThreshold] = useState(0)
+  
+  // Microphone Gain
+  const [micGain, setMicGain] = useState<number>(1)
 
   // We need a force update because Map mutation doesn't trigger re-render
   const [, setForceUpdate] = useState(0)
 
   const peersRef = useRef<Map<string, PeerData>>(new Map())
+  const peerPreferencesRef = useRef<Map<string, { camera: number, screen: number, audio: number }>>(new Map())
   const cameraStreamRef = useRef<MediaStream | null>(null) // Stores the original webcam stream
   const activeStreamRef = useRef<MediaStream | null>(null) // Stores the currently being sent stream (cam or screen)
+  
+  // Audio Processing Refs
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+
   const userNameRef = useRef(userName)
   const isVideoEnabledRef = useRef(isVideoEnabled)
+  const isScreenSharingRef = useRef(isScreenSharing)
   
   const selectedAudioDeviceRef = useRef(selectedAudioDevice)
   const selectedVideoDeviceRef = useRef(selectedVideoDevice)
   const selectedAudioOutputDeviceRef = useRef(selectedAudioOutputDevice)
+  
+  // Refs for bitrate to access in callbacks without deps
+  const bitratesOutgoingRef = useRef({ camera: 1500, screen: 4000, audio: 64 })
+  const bitratesIncomingRef = useRef({ camera: 1500, screen: 4000, audio: 64 })
+
+  useEffect(() => {
+      if (gainNodeRef.current) {
+          try {
+            gainNodeRef.current.gain.setTargetAtTime(micGain, audioContextRef.current?.currentTime || 0, 0.1)
+          } catch(e) {
+             console.error("Failed to set gain", e)
+          }
+      }
+  }, [micGain])
 
   useEffect(() => {
     localStorage.setItem('p2p-username', userName)
@@ -65,6 +105,11 @@ function App() {
   useEffect(() => {
       isVideoEnabledRef.current = isVideoEnabled
   }, [isVideoEnabled])
+
+  useEffect(() => {
+      isScreenSharingRef.current = isScreenSharing
+      applyBitrateSettings()
+  }, [isScreenSharing])
   
   useEffect(() => {
       selectedAudioDeviceRef.current = selectedAudioDevice
@@ -73,16 +118,57 @@ function App() {
   }, [selectedAudioDevice, selectedVideoDevice, selectedAudioOutputDevice])
 
   useEffect(() => {
+      bitratesOutgoingRef.current = { camera: cameraBitrate, screen: screenBitrate, audio: audioBitrate }
+      
+      // Save settings
+      localStorage.setItem('p2p-bitrate-camera', String(cameraBitrate))
+      localStorage.setItem('p2p-bitrate-screen', String(screenBitrate))
+      localStorage.setItem('p2p-bitrate-audio', String(audioBitrate))
+
+      if (window.electronAPI?.setStoreValue) {
+          window.electronAPI.setStoreValue('p2p-bitrate-camera', cameraBitrate)
+          window.electronAPI.setStoreValue('p2p-bitrate-screen', screenBitrate)
+          window.electronAPI.setStoreValue('p2p-bitrate-audio', audioBitrate)
+      }
+
+      // Apply to existing connections
+      applyBitrateSettings()
+  }, [cameraBitrate, screenBitrate, audioBitrate])
+
+  useEffect(() => {
+      bitratesIncomingRef.current = { camera: cameraBitrateIncoming, screen: screenBitrateIncoming, audio: audioBitrateIncoming }
+
+      // Save settings
+      localStorage.setItem('p2p-bitrate-camera-in', String(cameraBitrateIncoming))
+      localStorage.setItem('p2p-bitrate-screen-in', String(screenBitrateIncoming))
+      localStorage.setItem('p2p-bitrate-audio-in', String(audioBitrateIncoming))
+
+      if (window.electronAPI?.setStoreValue) {
+          window.electronAPI.setStoreValue('p2p-bitrate-camera-in', cameraBitrateIncoming)
+          window.electronAPI.setStoreValue('p2p-bitrate-screen-in', screenBitrateIncoming)
+          window.electronAPI.setStoreValue('p2p-bitrate-audio-in', audioBitrateIncoming)
+      }
+
+      // Broadcast preferences because my incoming requirements changed
+      broadcastBitratePreferences()
+  }, [cameraBitrateIncoming, screenBitrateIncoming, audioBitrateIncoming])
+
+  useEffect(() => {
     const loadSettings = async () => {
         // Fallback or initial load from localStorage
         const savedRooms = JSON.parse(localStorage.getItem('p2p-rooms') || '[]')
         setRooms(savedRooms)
 
+        setCameraBitrate(Number(localStorage.getItem('p2p-bitrate-camera')) || 1500)
+        setScreenBitrate(Number(localStorage.getItem('p2p-bitrate-screen')) || 4000)
+        setAudioBitrate(Number(localStorage.getItem('p2p-bitrate-audio')) || 64)
+
+        setCameraBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-camera-in')) || 1500)
+        setScreenBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-screen-in')) || 4000)
+        setAudioBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-audio-in')) || 64)
+
         if (!window.electronAPI) {
             console.error("Electron API missing")
-            // We don't show fatal error to user immediately to avoid scaring them if it's just a dev glitches,
-            // but for production this is critical. 
-            // setError("Critical: Electron API failed to load.") 
             return
         }
 
@@ -109,6 +195,24 @@ function App() {
 
             const aOut = await window.electronAPI.getStoreValue('p2p-audio-output')
             if (aOut) setSelectedAudioOutputDevice(aOut)
+
+            const camRate = await window.electronAPI.getStoreValue('p2p-bitrate-camera')
+            if (camRate) setCameraBitrate(camRate)
+
+            const scrRate = await window.electronAPI.getStoreValue('p2p-bitrate-screen')
+            if (scrRate) setScreenBitrate(scrRate)
+
+            const audRate = await window.electronAPI.getStoreValue('p2p-bitrate-audio')
+            if (audRate) setAudioBitrate(audRate)
+
+            const camRateIn = await window.electronAPI.getStoreValue('p2p-bitrate-camera-in')
+            if (camRateIn) setCameraBitrateIncoming(camRateIn)
+
+            const scrRateIn = await window.electronAPI.getStoreValue('p2p-bitrate-screen-in')
+            if (scrRateIn) setScreenBitrateIncoming(scrRateIn)
+
+            const audRateIn = await window.electronAPI.getStoreValue('p2p-bitrate-audio-in')
+            if (audRateIn) setAudioBitrateIncoming(audRateIn)
         }
     }
     loadSettings()
@@ -134,6 +238,7 @@ function App() {
       if (peerData) {
         peerData.peer.destroy()
         peersRef.current.delete(peerId)
+        peerPreferencesRef.current.delete(peerId)
         updatePeers()
       }
     })
@@ -147,14 +252,61 @@ function App() {
         })
     }
     
-    // Get local media on load
-    // startCamera(selectedAudioDevice, selectedVideoDevice) <-- Removed
-    
     return () => {
         navigator.mediaDevices.removeEventListener('devicechange', loadDevices)
     }
   }, [])
 
+  const broadcastBitratePreferences = () => {
+      const prefs = {
+          type: 'bitrate-pref',
+          camera: bitratesIncomingRef.current.camera,
+          screen: bitratesIncomingRef.current.screen,
+          audio: bitratesIncomingRef.current.audio
+      }
+      const msg = JSON.stringify(prefs)
+      peersRef.current.forEach(p => {
+          if (p.peer.connected) {
+              try { p.peer.send(msg) } catch (e) { console.error('Failed to send prefs', e)}
+          }
+      })
+  }
+
+  const applyBitrateSettings = () => {
+      peersRef.current.forEach((p, peerId) => {
+          const peer = p.peer as any
+          if (!peer._pc) return
+
+          const senders = peer._pc.getSenders() as RTCRtpSender[]
+          const peerPrefs = peerPreferencesRef.current.get(peerId)
+
+          senders.forEach(sender => {
+              if (!sender.track) return
+
+              const params = sender.getParameters()
+              if (!params.encodings) params.encodings = [{}]
+
+              let limit = Infinity
+              
+              if (sender.track.kind === 'audio') {
+                  const myLimit = bitratesOutgoingRef.current.audio
+                  const peerLimit = peerPrefs?.audio ?? Infinity
+                  limit = Math.min(myLimit, peerLimit)
+              } else if (sender.track.kind === 'video') {
+                  const isScreen = isScreenSharingRef.current
+                  const myLimit = isScreen ? bitratesOutgoingRef.current.screen : bitratesOutgoingRef.current.camera
+                  const peerLimit = isScreen ? (peerPrefs?.screen ?? Infinity) : (peerPrefs?.camera ?? Infinity)
+                  limit = Math.min(myLimit, peerLimit)
+              }
+
+              if (limit !== Infinity) {
+                  params.encodings[0].maxBitrate = limit * 1000 // kbps to bps
+                  sender.setParameters(params).catch(e => console.error("Failed to set bitrate", e))
+              }
+          })
+      })
+  }
+  
   // Restart camera when devices change
   useEffect(() => {
       startCamera(selectedAudioDevice, selectedVideoDevice)
@@ -220,18 +372,24 @@ function App() {
           video: videoId ? { deviceId: { exact: videoId } } : true
       })
 
-      let stream: MediaStream | null = null
+      let rawStream: MediaStream | null = null
       
       // Stop old tracks if restarting
       if (cameraStreamRef.current) {
           console.log("startCamera: Stopping old tracks")
           cameraStreamRef.current.getTracks().forEach(t => t.stop())
       }
+      
+      // Cleanup old audio nodes
+      if (micSourceRef.current) {
+          micSourceRef.current.disconnect()
+          micSourceRef.current = null
+      }
 
       try {
         const constraints = createConstraints(audioDeviceId, videoDeviceId)
         console.log("startCamera: Calling getUserMedia with constraints:", JSON.stringify(constraints))
-        stream = await navigator.mediaDevices.getUserMedia(constraints)
+        rawStream = await navigator.mediaDevices.getUserMedia(constraints)
       } catch (err: any) {
         console.warn("startCamera: Primary constraints failed:", err)
         if (err.name === 'NotReadableError') {
@@ -242,7 +400,7 @@ function App() {
             console.log("startCamera: Falling back to default devices")
             try {
                 // Fallback to simple constraints (Audio + Video)
-                stream = await navigator.mediaDevices.getUserMedia({ 
+                rawStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
                     video: true 
                 })
@@ -254,7 +412,7 @@ function App() {
                  console.warn("startCamera: Fallback (A+V) failed, trying Audio only", retryErr)
                  try {
                      // Fallback to Audio ONLY
-                     stream = await navigator.mediaDevices.getUserMedia({ 
+                     rawStream = await navigator.mediaDevices.getUserMedia({ 
                         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
                         video: false 
                     })
@@ -269,7 +427,7 @@ function App() {
             console.error('Failed to get local stream', err)
             try {
                  // Try Audio ONLY as a last resort for other errors
-                 stream = await navigator.mediaDevices.getUserMedia({ 
+                 rawStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
                     video: false 
                 })
@@ -282,29 +440,74 @@ function App() {
         }
       }
 
-      if (!stream) {
+      if (!rawStream) {
           setLocalStream(null)
           return
       }
 
-      console.log("startCamera: Stream obtained:", stream.id)
-      console.log("startCamera: Audio tracks:", stream.getAudioTracks().length)
-      console.log("startCamera: Video tracks:", stream.getVideoTracks().length)
+      // Process Audio with Gain
+      let finalStream = rawStream
+      if (rawStream.getAudioTracks().length > 0) {
+          try {
+              if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+                  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+                  audioContextRef.current = new AudioContextClass()
+              }
+              const ctx = audioContextRef.current
+              if (ctx.state === 'suspended') await ctx.resume()
+
+              if (!gainNodeRef.current) {
+                  gainNodeRef.current = ctx.createGain()
+                  gainNodeRef.current.gain.value = micGain
+              }
+
+              const source = ctx.createMediaStreamSource(rawStream)
+              micSourceRef.current = source
+              
+              const dest = ctx.createMediaStreamDestination()
+              
+              source.connect(gainNodeRef.current)
+              gainNodeRef.current.connect(dest)
+              
+              const processedAudioTrack = dest.stream.getAudioTracks()[0]
+              // Sync enabled state
+              processedAudioTrack.enabled = rawStream.getAudioTracks()[0].enabled
+              
+              // Handle muting events to keep tracks in sync
+              rawStream.getAudioTracks()[0].onmute = () => { processedAudioTrack.enabled = false }
+              rawStream.getAudioTracks()[0].onunmute = () => { processedAudioTrack.enabled = true }
+              rawStream.getAudioTracks()[0].onended = () => { processedAudioTrack.stop() }
+
+              finalStream = new MediaStream([processedAudioTrack, ...rawStream.getVideoTracks()])
+              console.log("startCamera: Audio processing chain set up")
+          } catch (e) {
+              console.error("startCamera: Failed to set up audio processing", e)
+              finalStream = rawStream
+          }
+      }
+
+      console.log("startCamera: Stream obtained:", finalStream.id)
+      console.log("startCamera: Audio tracks:", finalStream.getAudioTracks().length)
+      console.log("startCamera: Video tracks:", finalStream.getVideoTracks().length)
       
       // Refresh devices list after permission grant to ensure labels are visible
       loadDevices()
 
-      setLocalStream(stream)
-      cameraStreamRef.current = stream
-      activeStreamRef.current = stream
-      setIsVideoEnabled(true)
+      setLocalStream(finalStream)
+      cameraStreamRef.current = finalStream
+      activeStreamRef.current = finalStream
+      
+      const shouldEnableVideo = isVideoEnabledRef.current
+      if (finalStream.getVideoTracks().length > 0) {
+          finalStream.getVideoTracks()[0].enabled = shouldEnableVideo
+      }
+      
+      setIsVideoEnabled(shouldEnableVideo)
       setIsAudioEnabled(true)
       
       // If we are in a call, we might need to replace tracks for peers
-      // Simplified: We just update local stream visual. 
-      // Ideally, we'd replaceTrack on all peers here too.
       if (peersRef.current.size > 0) {
-          replaceTracksForAllPeers(stream)
+          replaceTracksForAllPeers(finalStream)
       }
 
     } catch (err) {
@@ -387,6 +590,15 @@ function App() {
       console.log('Peer connected', peerId)
       // Send identity and video state
       peer.send(JSON.stringify({ type: 'identify', username: userNameRef.current, videoEnabled: isVideoEnabledRef.current }))
+      
+      // Send bitrate prefs
+      const prefs = {
+          type: 'bitrate-pref',
+          camera: bitratesIncomingRef.current.camera,
+          screen: bitratesIncomingRef.current.screen,
+          audio: bitratesIncomingRef.current.audio
+      }
+      try { peer.send(JSON.stringify(prefs)) } catch (e) { console.error('Failed to send prefs on connect', e) }
     })
 
     peer.on('data', (data: any) => {
@@ -407,6 +619,14 @@ function App() {
                 p.isVideoEnabled = msg.enabled
                 updatePeers()
             }
+        } else if (msg.type === 'bitrate-pref') {
+            console.log(`Received bitrate prefs from ${peerId}`, msg)
+            peerPreferencesRef.current.set(peerId, {
+                camera: msg.camera,
+                screen: msg.screen,
+                audio: msg.audio
+            })
+            applyBitrateSettings()
         }
       } catch (err) {
         console.error('Data channel error', err)
@@ -421,6 +641,12 @@ function App() {
         // Default to true if not yet received, but usually identify comes first
         if (p.isVideoEnabled === undefined) p.isVideoEnabled = true
         updatePeers()
+        
+        // Apply bitrate settings to new stream senders (if we are sending to them)
+        // Wait, 'stream' event is for incoming. We need to set OUR senders.
+        // Actually, simple-peer might add tracks/senders shortly after connection.
+        // Let's retry applying settings after a short delay to ensure senders exist
+        setTimeout(applyBitrateSettings, 1000)
       }
     })
 
@@ -476,6 +702,7 @@ function App() {
         p.peer.destroy()
     })
     peersRef.current.clear()
+    peerPreferencesRef.current.clear() // Clear prefs
     updatePeers()
 
     // Stop screen share if active
@@ -631,6 +858,26 @@ function App() {
         selectedVideoDevice={selectedVideoDevice}
         onDeviceChange={handleDeviceChange}
         localStream={localStream}
+        cameraBitrate={cameraBitrate}
+        setCameraBitrate={setCameraBitrate}
+        screenBitrate={screenBitrate}
+        setScreenBitrate={setScreenBitrate}
+        audioBitrate={audioBitrate}
+        setAudioBitrate={setAudioBitrate}
+        cameraBitrateIncoming={cameraBitrateIncoming}
+        setCameraBitrateIncoming={setCameraBitrateIncoming}
+        screenBitrateIncoming={screenBitrateIncoming}
+        setScreenBitrateIncoming={setScreenBitrateIncoming}
+        audioBitrateIncoming={audioBitrateIncoming}
+        setAudioBitrateIncoming={setAudioBitrateIncoming}
+        noiseSuppression={noiseSuppression}
+        setNoiseSuppression={setNoiseSuppression}
+        echoCancellation={echoCancellation}
+        setEchoCancellation={setEchoCancellation}
+        autoGainControl={autoGainControl}
+        setAutoGainControl={setAutoGainControl}
+        vadThreshold={vadThreshold}
+        setVadThreshold={setVadThreshold}
       />
 
       <ScreenShareModal 
@@ -685,6 +932,9 @@ function App() {
                       localUserName={userName}
                       peers={peerList} 
                       audioOutputDeviceId={selectedAudioOutputDevice}
+                      micGain={micGain}
+                      onMicGainChange={setMicGain}
+                      vadThreshold={vadThreshold}
                    />
                    <MediaControls 
                       isAudioEnabled={isAudioEnabled}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Mic, Video, User } from 'lucide-react'
+import { X, Mic, Video, User, Activity } from 'lucide-react'
 
 // Simple hook reimplementation for inside modal if needed, or pass stream and use existing hook?
 // Better to re-use existing hook logic or just replicate for a simple visualizer.
@@ -17,9 +17,36 @@ interface SettingsModalProps {
   selectedVideoDevice: string
   onDeviceChange: (deviceId: string, kind: 'audioinput' | 'videoinput' | 'audiooutput') => void
   localStream: MediaStream | null
+  // Bitrate settings (in kbps)
+  cameraBitrate: number
+  setCameraBitrate: (val: number) => void
+  screenBitrate: number
+  setScreenBitrate: (val: number) => void
+  audioBitrate: number
+  setAudioBitrate: (val: number) => void
+  // Incoming settings
+  cameraBitrateIncoming: number
+  setCameraBitrateIncoming: (val: number) => void
+  screenBitrateIncoming: number
+  setScreenBitrateIncoming: (val: number) => void
+  audioBitrateIncoming: number
+  setAudioBitrateIncoming: (val: number) => void
+  // Voice Processing
+  noiseSuppression: boolean
+  setNoiseSuppression: (val: boolean) => void
+  echoCancellation: boolean
+  setEchoCancellation: (val: boolean) => void
+  autoGainControl: boolean
+  setAutoGainControl: (val: boolean) => void
+  vadThreshold: number
+  setVadThreshold: (val: number) => void
 }
 
-function VolumeMeter({ stream }: { stream: MediaStream | null }) {
+function VolumeMeter({ stream, vadThreshold, onChangeVadThreshold }: { 
+    stream: MediaStream | null,
+    vadThreshold: number,
+    onChangeVadThreshold: (val: number) => void
+}) {
     const [volume, setVolume] = useState(0)
     const audioContextRef = useRef<AudioContext | null>(null)
     const analyserRef = useRef<AnalyserNode | null>(null)
@@ -116,21 +143,59 @@ function VolumeMeter({ stream }: { stream: MediaStream | null }) {
     }, [stream])
 
     // Scale volume 0-255 roughly to percentage 0-100
-    // Usually voice is lower, so let's amplify visualization
-    const percent = Math.min(100, Math.max(0, volume * 2)) 
+    // Usually voice is lower, so let's amplify visualization slightly
+    const percent = Math.min(100, Math.max(0, volume * 1.5)) 
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="w-full bg-gray-950 h-2 rounded-full overflow-hidden mt-2 border border-gray-700">
+             <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-gray-400 uppercase">Input Sensitivity & Gate</label>
+                <span className="text-xs font-mono bg-gray-900 px-2 py-0.5 rounded text-gray-400">
+                    {vadThreshold === 0 ? "OPEN" : `${vadThreshold}%`}
+                </span>
+            </div>
+
+            <div className="relative w-full h-8 bg-gray-950 rounded overflow-hidden border border-gray-700 cursor-pointer group">
+                {/* Background Pattern */}
+                <div className="absolute inset-0 bg-gray-900" />
+                
+                {/* Visualizer Bar */}
                 <div 
-                    className="h-full bg-green-500 transition-all duration-75 ease-out"
+                    className="absolute top-0 left-0 h-full bg-green-500 transition-all duration-75 ease-out shadow-[0_0_10px_rgba(34,197,94,0.5)]"
                     style={{ width: `${percent}%` }}
                 />
+
+                {/* Gate Threshold Overlay (Darken area below threshold) */}
+                 <div 
+                    className="absolute top-0 left-0 h-full bg-black/60 z-10 pointer-events-none transition-all duration-75"
+                    style={{ width: `${vadThreshold}%` }}
+                />
+
+                {/* Threshold Line Marker */}
+                 <div 
+                    className="absolute top-0 h-full w-1 bg-white z-20 pointer-events-none shadow-[0_0_5px_rgba(255,255,255,0.8)]"
+                    style={{ left: `${vadThreshold}%` }}
+                />
+
+                {/* Interactive Slider */}
+                <input 
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={vadThreshold}
+                    onChange={(e) => onChangeVadThreshold(Number(e.target.value))}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-30"
+                    title="Adjust Voice Gate Threshold"
+                />
             </div>
-            <div className="text-[10px] text-gray-600 flex justify-between">
-                <span>Ctx: {ctxState}</span>
-                <span>{trackInfo}</span>
+            
+            <div className="flex justify-between text-[10px] text-gray-500">
+                <span>Always Open</span>
+                <span className="text-center">{trackInfo ? 'Device Ready' : 'Initializing...'}</span>
+                <span>Strict Gate</span>
             </div>
+             
              {ctxState === 'suspended' && (
                 <button 
                     onClick={() => audioContextRef.current?.resume()}
@@ -153,9 +218,29 @@ export function SettingsModal({
   selectedAudioOutputDevice,
   selectedVideoDevice,
   onDeviceChange,
-  localStream
+  localStream,
+  cameraBitrate,
+  setCameraBitrate,
+  screenBitrate,
+  setScreenBitrate,
+  audioBitrate,
+  setAudioBitrate,
+  cameraBitrateIncoming,
+  setCameraBitrateIncoming,
+  screenBitrateIncoming,
+  setScreenBitrateIncoming,
+  audioBitrateIncoming,
+  setAudioBitrateIncoming,
+  noiseSuppression,
+  setNoiseSuppression,
+  echoCancellation,
+  setEchoCancellation,
+  autoGainControl,
+  setAutoGainControl,
+  vadThreshold,
+  setVadThreshold
 }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'voice' | 'video'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'voice' | 'video' | 'quality'>('profile')
   const [tempName, setTempName] = useState(userName)
 
   if (!isOpen) return null
@@ -207,6 +292,16 @@ export function SettingsModal({
             <Video size={18} />
             Video
           </button>
+
+          <button
+            onClick={() => setActiveTab('quality')}
+            className={`flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition-colors ${
+              activeTab === 'quality' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+            }`}
+          >
+            <Activity size={18} />
+            Quality / Data
+          </button>
         </div>
 
         {/* Content */}
@@ -216,6 +311,7 @@ export function SettingsModal({
               {activeTab === 'profile' && 'My Account'}
               {activeTab === 'voice' && 'Voice Settings'}
               {activeTab === 'video' && 'Video Settings'}
+              {activeTab === 'quality' && 'Connection Quality'}
             </h2>
             <button 
               onClick={onClose}
@@ -276,9 +372,58 @@ export function SettingsModal({
                     </div>
                     
                     <div className="mt-4">
-                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Mic Test</label>
-                        <p className="text-xs text-gray-500 mb-1">Speak into your microphone to test.</p>
-                        <VolumeMeter stream={localStream} />
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Mic Test & Gate</label>
+                        <p className="text-xs text-gray-500 mb-1">Speak to test. Adjust the slider to set the open gate threshold.</p>
+                        <VolumeMeter 
+                            stream={localStream} 
+                            vadThreshold={vadThreshold}
+                            onChangeVadThreshold={setVadThreshold}
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <h3 className="text-sm font-bold text-gray-400 uppercase mb-4 border-b border-gray-700 pb-2">Voice Processing</h3>
+                    
+                    <div className="space-y-4">
+                        <label className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors">
+                            <input 
+                                type="checkbox" 
+                                checked={noiseSuppression} 
+                                onChange={(e) => setNoiseSuppression(e.target.checked)}
+                                className="w-5 h-5 rounded accent-indigo-500 bg-gray-700 border-gray-600"
+                            />
+                            <div>
+                                <div className="font-bold text-sm">Noise Suppression</div>
+                                <div className="text-xs text-gray-500">Reduces background noise and static</div>
+                            </div>
+                        </label>
+
+                        <label className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors">
+                            <input 
+                                type="checkbox" 
+                                checked={echoCancellation} 
+                                onChange={(e) => setEchoCancellation(e.target.checked)}
+                                className="w-5 h-5 rounded accent-indigo-500 bg-gray-700 border-gray-600"
+                            />
+                            <div>
+                                <div className="font-bold text-sm">Echo Cancellation</div>
+                                <div className="text-xs text-gray-500">Prevents others from hearing themselves</div>
+                            </div>
+                        </label>
+
+                        <label className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700 cursor-pointer hover:border-gray-600 transition-colors">
+                            <input 
+                                type="checkbox" 
+                                checked={autoGainControl} 
+                                onChange={(e) => setAutoGainControl(e.target.checked)}
+                                className="w-5 h-5 rounded accent-indigo-500 bg-gray-700 border-gray-600"
+                            />
+                            <div>
+                                <div className="font-bold text-sm">Auto Gain Control</div>
+                                <div className="text-xs text-gray-500">Automatically adjusts microphone volume</div>
+                            </div>
+                        </label>
                     </div>
                 </div>
 
@@ -337,33 +482,86 @@ export function SettingsModal({
             )}
 
             {activeTab === 'video' && (
-               <div className="space-y-6">
-                <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Camera</label>
-                    <div className="relative">
-                        <select 
-                            value={selectedVideoDevice}
-                            onChange={(e) => onDeviceChange(e.target.value, 'videoinput')}
-                            className="w-full bg-gray-800 text-white border border-gray-700 rounded p-3 outline-none focus:border-indigo-500 appearance-none"
-                        >
-                            {videoDevices.map(device => (
-                                <option key={device.deviceId} value={device.deviceId}>
-                                    {device.label || `Camera ${device.deviceId.slice(0, 5)}...`}
-                                </option>
-                            ))}
-                            {videoDevices.length === 0 && <option value="">Default Camera</option>}
-                        </select>
+                <div className="space-y-6">
+                     <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Camera</label>
+                        <div className="relative">
+                            <select 
+                                value={selectedVideoDevice}
+                                onChange={(e) => onDeviceChange(e.target.value, 'videoinput')}
+                                className="w-full bg-gray-800 text-white border border-gray-700 rounded p-3 outline-none focus:border-indigo-500 appearance-none"
+                            >
+                                {videoDevices.map(device => (
+                                    <option key={device.deviceId} value={device.deviceId}>
+                                        {device.label || `Camera ${device.deviceId.slice(0, 5)}...`}
+                                    </option>
+                                ))}
+                                {videoDevices.length === 0 && <option value="">No Cameras Found</option>}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="font-bold text-sm">Camera Bitrate (Outgoing)</label>
+                            <span className="text-xs font-mono bg-gray-900 px-2 py-1 rounded text-gray-400">{cameraBitrate} kbps</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="100" 
+                            max="5000" 
+                            step="100"
+                            value={cameraBitrate}
+                            onChange={(e) => setCameraBitrate(Number(e.target.value))}
+                            className="w-full accent-indigo-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        />
                     </div>
                 </div>
-                
-                <div className="bg-gray-950 rounded-lg p-4 aspect-video flex items-center justify-center border border-gray-800 relative overflow-hidden">
-                    <div className="absolute inset-0 flex items-center justify-center text-gray-500 pointer-events-none">
-                        Video Preview Area
-                    </div>
-                    {/* We could potentially show a local preview here if we passed the stream down */}
-                </div>
-              </div>
             )}
+
+            {activeTab === 'quality' && (
+                <div className="space-y-6">
+                     <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-lg">
+                        <h4 className="font-bold text-blue-400 mb-2">Connection Settings</h4>
+                        <p className="text-sm text-gray-300">
+                            Adjust these settings if you are experiencing lag or poor quality. Lower bitrates reduce bandwidth usage.
+                        </p>
+                    </div>
+
+                    <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="font-bold text-sm">Screen Share Bitrate</label>
+                            <span className="text-xs font-mono bg-gray-900 px-2 py-1 rounded text-gray-400">{screenBitrate} kbps</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="500" 
+                            max="8000" 
+                            step="500"
+                            value={screenBitrate}
+                            onChange={(e) => setScreenBitrate(Number(e.target.value))}
+                            className="w-full accent-indigo-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+
+                    <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="font-bold text-sm">Audio Bitrate</label>
+                            <span className="text-xs font-mono bg-gray-900 px-2 py-1 rounded text-gray-400">{audioBitrate} kbps</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="16" 
+                            max="256" 
+                            step="16"
+                            value={audioBitrate}
+                            onChange={(e) => setAudioBitrate(Number(e.target.value))}
+                            className="w-full accent-indigo-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                    </div>
+                </div>
+            )}
+
           </div>
         </div>
       </div>

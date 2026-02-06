@@ -7,6 +7,9 @@ interface VideoGridProps {
   localUserName: string
   audioOutputDeviceId?: string
   peers: { peerId: string; stream: MediaStream; userName?: string; isVideoEnabled?: boolean }[]
+  micGain?: number
+  onMicGainChange?: (val: number) => void
+  vadThreshold?: number
 }
 
 interface VideoCardProps {
@@ -17,33 +20,56 @@ interface VideoCardProps {
   isVideoEnabled?: boolean
   audioOutputDeviceId?: string
   onClick?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
   className?: string
   objectFit?: 'contain' | 'cover'
+  volume?: number
+  vadThreshold?: number
 }
 
-const VideoCard = ({ 
-  stream, 
-  isLocal = false, 
-  peerId, 
-  userName, 
-  isVideoEnabled = true, 
+const VideoCard = ({
+  stream,
+  isLocal = false,
+  peerId,
+  userName,
+  isVideoEnabled = true,
   audioOutputDeviceId,
   onClick,
+  onContextMenu,
   className = '',
-  objectFit = 'cover'
+  objectFit = 'cover',
+  volume = 1,
+  vadThreshold = 0
 }: VideoCardProps) => {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const isSpeaking = useAudioActivity(stream)
+  // Use local threshold for local user, default sensitive threshold for remote
+  const effectiveThreshold = isLocal ? vadThreshold : 1
+  const isSpeaking = useAudioActivity(stream, effectiveThreshold)
   
   // Use a stable identifier for the avatar (userName or peerId)
   const avatarSeed = userName || peerId || 'default'
-  const avatarUrl = `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(avatarSeed)}&backgroundColor=555555,777777`
+  
+  const getInitials = (name: string) => {
+      const cleanName = name.replace(/[^a-zA-Z0-9 ]/g, '')
+      const parts = cleanName.trim().split(/\s+/)
+      if (parts.length === 0) return '?'
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+      return (parts[0][0] + parts[1][0]).toUpperCase()
+  }
+  
+  const initials = getInitials(userName || peerId || '?')
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream
     }
   }, [stream])
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = Math.min(1, volume)
+    }
+  }, [volume])
 
   useEffect(() => {
       if (videoRef.current && audioOutputDeviceId && (videoRef.current as any).setSinkId) {
@@ -62,14 +88,13 @@ const VideoCard = ({
   return (
     <div 
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`relative bg-gray-800 rounded-lg overflow-hidden shadow-lg border transition-all duration-100 ${activeClass} ${cursorClass} flex items-center justify-center ${className || 'aspect-video'}`}
     >
       <div className={`w-full h-full flex items-center justify-center bg-gray-900 ${showVideo ? 'hidden' : 'block'}`}>
-          <img 
-            src={avatarUrl} 
-            alt={userName} 
-            className={`w-24 h-24 rounded-full border-4 shadow-md transition-colors duration-100 ${isSpeaking ? 'border-green-500' : 'border-gray-700'}`}
-          />
+          <div className={`w-24 h-24 rounded-full border-4 shadow-md flex items-center justify-center bg-indigo-600 text-white font-bold text-2xl select-none transition-colors duration-100 ${isSpeaking ? 'border-green-500' : 'border-gray-700'}`}>
+              {initials}
+          </div>
       </div>
       <video
         ref={videoRef}
@@ -85,8 +110,42 @@ const VideoCard = ({
   )
 }
 
-export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers, audioOutputDeviceId }: VideoGridProps) {
+export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers, audioOutputDeviceId, micGain = 1, onMicGainChange, vadThreshold = 0 }: VideoGridProps) {
   const [focusedId, setFocusedId] = useState<string | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const [volumes, setVolumes] = useState<Record<string, number>>({})
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean
+    x: number
+    y: number
+    peerId: string
+    isLocal: boolean
+    userName?: string
+  } | null>(null)
+
+  const handleContextMenu = (e: React.MouseEvent, peerId: string, isLocal: boolean, userName?: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      peerId,
+      isLocal,
+      userName
+    })
+  }
+
+  const handleVolumeChange = (peerId: string, val: number) => {
+    setVolumes(prev => ({ ...prev, [peerId]: val }))
+  }
+
+  // Close context menu on click outside
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null)
+    window.addEventListener('click', handleClick)
+    return () => window.removeEventListener('click', handleClick)
+  }, [])
 
   const focusedData = useMemo(() => {
     if (focusedId === 'local') {
@@ -95,7 +154,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
         userName: localUserName,
         isLocal: true,
         isVideoEnabled: localVideoEnabled,
-        peerId: 'local'
+        peerId: 'local',
+        vadThreshold: vadThreshold
       }
     }
     const peer = peers.find(p => p.peerId === focusedId)
@@ -109,7 +169,21 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
       }
     }
     return null
-  }, [focusedId, localStream, localUserName, localVideoEnabled, peers])
+  }, [focusedId, localStream, localUserName, localVideoEnabled, peers, vadThreshold])
+
+  useEffect(() => {
+    if (focusedData && overlayRef.current) {
+      overlayRef.current.requestFullscreen().catch(err => {
+        console.warn("Failed to enter fullscreen:", err)
+      })
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(err => {
+          console.warn("Failed to exit fullscreen:", err)
+        })
+      }
+    }
+  }, [focusedData])
 
   return (
     <>
@@ -121,6 +195,9 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
           userName={localUserName}
           audioOutputDeviceId={audioOutputDeviceId}
           onClick={() => setFocusedId('local')}
+          onContextMenu={(e) => handleContextMenu(e, 'local', true, localUserName)}
+          volume={volumes['local'] ?? 1}
+          vadThreshold={vadThreshold}
         />
         {peers.map(peer => (
           <VideoCard 
@@ -131,6 +208,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
             isVideoEnabled={peer.isVideoEnabled}
             audioOutputDeviceId={audioOutputDeviceId}
             onClick={() => setFocusedId(peer.peerId)}
+            onContextMenu={(e) => handleContextMenu(e, peer.peerId, false, peer.userName)}
+            volume={volumes[peer.peerId] ?? 1}
           />
         ))}
         {peers.length === 0 && !localStream && (
@@ -142,11 +221,18 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
 
       {focusedData && (
         <div 
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 md:p-8"
+          ref={overlayRef}
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
           onClick={() => setFocusedId(null)}
+          onContextMenu={(e) => {
+             // Allow context menu in fullscreen too
+             if (focusedData.peerId) {
+                 handleContextMenu(e, focusedData.peerId, focusedData.isLocal || false, focusedData.userName)
+             }
+          }}
         >
           <div 
-            className="w-full h-full max-w-7xl relative"
+            className="w-full h-full relative"
             onClick={e => e.stopPropagation()}
           >
             <VideoCard 
@@ -154,6 +240,7 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
               audioOutputDeviceId={audioOutputDeviceId}
               className="w-full h-full"
               objectFit="contain"
+              volume={volumes[focusedData.peerId || ''] ?? 1}
             />
             <button 
               onClick={() => setFocusedId(null)}
@@ -164,6 +251,49 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
               </svg>
             </button>
           </div>
+        </div>
+      )}
+
+      {contextMenu && contextMenu.visible && (
+        <div 
+            className="fixed z-[100] bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-3 w-64 text-sm text-white"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+        >
+            <div className="font-bold mb-2 pb-2 border-b border-gray-700 truncate">
+                {contextMenu.isLocal ? 'You (Input Gain)' : contextMenu.userName || 'Peer'}
+            </div>
+            <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-400 font-bold uppercase">
+                    {contextMenu.isLocal ? 'Gain' : 'Volume'}
+                </label>
+                <div className="flex items-center gap-3">
+                    <input 
+                        type="range" 
+                        min="0" 
+                        max={contextMenu.isLocal ? "5" : "1"}
+                        step="0.01"
+                        value={contextMenu.isLocal ? micGain : (volumes[contextMenu.peerId] ?? 1)}
+                        onChange={(e) => {
+                            const val = parseFloat(e.target.value)
+                            if (contextMenu.isLocal && onMicGainChange) {
+                                onMicGainChange(val)
+                            } else {
+                                handleVolumeChange(contextMenu.peerId, val)
+                            }
+                        }}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                    <span className="w-12 text-right font-mono text-xs text-gray-300">
+                        {Math.round((contextMenu.isLocal ? micGain : (volumes[contextMenu.peerId] ?? 1)) * 100)}%
+                    </span>
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-600 mt-1 px-1">
+                    <span>{contextMenu.isLocal ? '0%' : 'Mute'}</span>
+                    <span>{contextMenu.isLocal ? '250%' : '50%'}</span>
+                    <span>{contextMenu.isLocal ? '500%' : '100%'}</span>
+                </div>
+            </div>
         </div>
       )}
     </>
