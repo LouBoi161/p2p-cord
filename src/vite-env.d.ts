@@ -11,5 +11,7 @@ interface Window {
     onPeerDisconnected: (callback: (event: any, peerId: string) => void) => void
     getStoreValue: (key: string) => Promise<any>
     setStoreValue: (key: string, value: any) => void
+    onGetScreenSources: (callback: (event: any, sources: any[]) => void) => void
+    selectScreenSource: (sourceId: string | null) => void
   }
 }

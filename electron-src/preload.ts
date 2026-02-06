@@ -13,4 +13,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('peer-disconnected', callback),
   getStoreValue: (key: string) => ipcRenderer.invoke('get-store-value', key),
   setStoreValue: (key: string, value: any) => ipcRenderer.send('set-store-value', key, value),
+  
+  // Screen Share Picker
+  onGetScreenSources: (callback: (event: any, sources: any[]) => void) => 
+      ipcRenderer.on('get-screen-sources', callback),
+  selectScreenSource: (sourceId: string) => ipcRenderer.send('select-screen-source', sourceId),
 })

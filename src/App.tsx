@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import { VideoGrid } from './components/VideoGrid'
 import { MediaControls } from './components/MediaControls'
 import { SettingsModal } from './components/SettingsModal'
+import { ScreenShareModal, ScreenSource } from './components/ScreenShareModal'
 import SimplePeer from 'simple-peer'
 
 // Types
@@ -29,6 +30,10 @@ function App() {
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>(() => localStorage.getItem('p2p-audio-input') || '')
   const [selectedAudioOutputDevice, setSelectedAudioOutputDevice] = useState<string>(() => localStorage.getItem('p2p-audio-output') || '')
   const [selectedVideoDevice, setSelectedVideoDevice] = useState<string>(() => localStorage.getItem('p2p-video-input') || '')
+  
+  // Screen Share State
+  const [isScreenShareModalOpen, setIsScreenShareModalOpen] = useState(false)
+  const [screenSources, setScreenSources] = useState<ScreenSource[]>([])
   
   // Media States
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
@@ -123,6 +128,15 @@ function App() {
       }
     })
     
+    // Screen Share Picker Listener
+    if (window.electronAPI.onGetScreenSources) {
+        window.electronAPI.onGetScreenSources((_event, sources) => {
+            console.log("Received screen sources", sources.length)
+            setScreenSources(sources)
+            setIsScreenShareModalOpen(true)
+        })
+    }
+    
     // Get local media on load
     // startCamera(selectedAudioDevice, selectedVideoDevice) <-- Removed
     
@@ -135,6 +149,16 @@ function App() {
   useEffect(() => {
       startCamera(selectedAudioDevice, selectedVideoDevice)
   }, [selectedAudioDevice, selectedVideoDevice])
+
+  const handleSelectScreenSource = (id: string) => {
+      window.electronAPI.selectScreenSource(id)
+      setIsScreenShareModalOpen(false)
+  }
+
+  const handleCancelScreenShare = () => {
+      window.electronAPI.selectScreenSource(null)
+      setIsScreenShareModalOpen(false)
+  }
 
   const loadDevices = async () => {
       try {
@@ -593,6 +617,13 @@ function App() {
         selectedVideoDevice={selectedVideoDevice}
         onDeviceChange={handleDeviceChange}
         localStream={localStream}
+      />
+
+      <ScreenShareModal 
+        isOpen={isScreenShareModalOpen}
+        sources={screenSources}
+        onSelect={handleSelectScreenSource}
+        onCancel={handleCancelScreenShare}
       />
 
       <Sidebar 

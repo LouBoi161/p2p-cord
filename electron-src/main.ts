@@ -13,6 +13,9 @@ let win: BrowserWindow | null
 const peers = new Map<string, any>()
 let swarm: any
 
+let screenShareCallback: ((response: Electron.Streams) => void) | null = null
+let pendingSources: Electron.DesktopCapturerSource[] = []
+
 const storePath = path.join(app.getPath('userData'), 'store.json')
 console.log("Store path:", storePath)
 
@@ -92,14 +95,19 @@ function createWindow() {
 
   // Handle Screen Sharing Request
   win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      // Grant access to the first screen available
-      if (sources.length > 0) {
-          callback({ video: sources[0], audio: 'loopback' })
-      } else {
-          // No screens available?
-          console.error("No screens found for sharing")
-      }
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+      pendingSources = sources
+      
+      const sentSources = sources.map(s => ({
+          id: s.id,
+          name: s.name,
+          thumbnail: s.thumbnail.toDataURL(),
+          display_id: s.display_id,
+          appIcon: s.appIcon ? s.appIcon.toDataURL() : null
+      }))
+      
+      screenShareCallback = callback
+      win?.webContents.send('get-screen-sources', sentSources)
     }).catch(console.error)
   })
 
@@ -155,6 +163,22 @@ app.whenReady().then(() => {
 })
 
 // IPC Handlers
+ipcMain.on('select-screen-source', (_event, sourceId) => {
+    if (screenShareCallback) {
+        if (sourceId) {
+            const source = pendingSources.find(s => s.id === sourceId)
+            if (source) {
+                // Determine audio support? Loopback audio usually only works for screens, not windows on some OS
+                // But we try 'loopback' anyway.
+                screenShareCallback({ video: source, audio: 'loopback' })
+            }
+        }
+        // Reset
+        screenShareCallback = null
+        pendingSources = []
+    }
+})
+
 ipcMain.on('join-room', (_event, topicStr) => {
   if (!swarm) return
   // Topic needs to be 32 bytes buffer
