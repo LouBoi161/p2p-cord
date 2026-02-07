@@ -171,6 +171,28 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
     userName?: string
   } | null>(null)
 
+  // Load volumes from storage
+  useEffect(() => {
+      const loadVolumes = async () => {
+          const saved = localStorage.getItem('p2p-peer-volumes')
+          if (saved) {
+              try {
+                  setVolumes(JSON.parse(saved))
+              } catch (e) {
+                  console.error("Failed to parse volumes", e)
+              }
+          }
+          
+          if (window.electronAPI?.getStoreValue) {
+              const stored = await window.electronAPI.getStoreValue('p2p-peer-volumes')
+              if (stored && typeof stored === 'object') {
+                  setVolumes(prev => ({ ...prev, ...stored }))
+              }
+          }
+      }
+      loadVolumes()
+  }, [])
+
   const handleContextMenu = (e: React.MouseEvent, peerId: string, isLocal: boolean, userName?: string) => {
     e.preventDefault()
     e.stopPropagation()
@@ -185,7 +207,17 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
   }
 
   const handleVolumeChange = (peerId: string, val: number) => {
-    setVolumes(prev => ({ ...prev, [peerId]: val }))
+    setVolumes(prev => {
+        const newVolumes = { ...prev, [peerId]: val }
+        
+        // Save to storage
+        localStorage.setItem('p2p-peer-volumes', JSON.stringify(newVolumes))
+        if (window.electronAPI?.setStoreValue) {
+            window.electronAPI.setStoreValue('p2p-peer-volumes', newVolumes)
+        }
+        
+        return newVolumes
+    })
   }
 
   // Close context menu on click outside
