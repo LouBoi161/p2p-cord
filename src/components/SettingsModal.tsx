@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Mic, Video, User, Activity } from 'lucide-react'
+import { X, Mic, Video, User, Activity, RefreshCw } from 'lucide-react'
 
 // Simple hook reimplementation for inside modal if needed, or pass stream and use existing hook?
 // Better to re-use existing hook logic or just replicate for a simple visualizer.
@@ -16,6 +16,7 @@ interface SettingsModalProps {
   selectedAudioOutputDevice: string
   selectedVideoDevice: string
   onDeviceChange: (deviceId: string, kind: 'audioinput' | 'videoinput' | 'audiooutput') => void
+  onRefreshDevices: () => void
   localStream: MediaStream | null
   // Bitrate settings (in kbps)
   cameraBitrate: number
@@ -218,6 +219,7 @@ export function SettingsModal({
   selectedAudioOutputDevice,
   selectedVideoDevice,
   onDeviceChange,
+  onRefreshDevices,
   localStream,
   cameraBitrate,
   setCameraBitrate,
@@ -355,7 +357,16 @@ export function SettingsModal({
             {activeTab === 'voice' && (
               <div className="space-y-6">
                 <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Input Device</label>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase">Input Device</label>
+                        <button 
+                            onClick={onRefreshDevices} 
+                            className="text-gray-500 hover:text-white transition-colors"
+                            title="Refresh Devices"
+                        >
+                            <RefreshCw size={14} />
+                        </button>
+                    </div>
                     <div className="relative">
                         <select 
                             value={selectedAudioDevice}
@@ -428,7 +439,16 @@ export function SettingsModal({
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Output Device</label>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase">Output Device</label>
+                        <button 
+                            onClick={onRefreshDevices} 
+                            className="text-gray-500 hover:text-white transition-colors"
+                            title="Refresh Devices"
+                        >
+                            <RefreshCw size={14} />
+                        </button>
+                    </div>
                     <div className="relative">
                         <select 
                             value={selectedAudioOutputDevice}
@@ -484,7 +504,16 @@ export function SettingsModal({
             {activeTab === 'video' && (
                 <div className="space-y-6">
                      <div>
-                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Camera</label>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-xs font-bold text-gray-400 uppercase">Camera</label>
+                            <button 
+                                onClick={onRefreshDevices} 
+                                className="text-gray-500 hover:text-white transition-colors"
+                                title="Refresh Devices"
+                            >
+                                <RefreshCw size={14} />
+                            </button>
+                        </div>
                         <div className="relative">
                             <select 
                                 value={selectedVideoDevice}

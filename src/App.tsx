@@ -961,6 +961,7 @@ function App() {
         selectedAudioOutputDevice={selectedAudioOutputDevice}
         selectedVideoDevice={selectedVideoDevice}
         onDeviceChange={handleDeviceChange}
+        onRefreshDevices={loadDevices}
         localStream={localStream}
         cameraBitrate={cameraBitrate}
         setCameraBitrate={setCameraBitrate}
