@@ -96,7 +96,14 @@ function App() {
              console.error("Failed to set gain", e)
           }
       }
-  }, [micGain])
+      
+      if (settingsLoaded) {
+          localStorage.setItem('p2p-mic-gain', String(micGain))
+          if (window.electronAPI?.setStoreValue) {
+              window.electronAPI.setStoreValue('p2p-mic-gain', micGain)
+          }
+      }
+  }, [micGain, settingsLoaded])
 
   useEffect(() => {
     localStorage.setItem('p2p-username', userName)
@@ -258,6 +265,9 @@ function App() {
 
             const vad = await window.electronAPI.getStoreValue('p2p-vad-threshold')
             if (vad !== undefined) setVadThreshold(vad)
+
+            const mg = await window.electronAPI.getStoreValue('p2p-mic-gain')
+            if (mg !== undefined) setMicGain(mg)
         }
         
         // Load Public Rooms
@@ -270,6 +280,12 @@ function App() {
             }
         }
         
+        // LocalStorage fallback for mic gain if not in electron store yet
+        if (!window.electronAPI?.getStoreValue) {
+            const mg = localStorage.getItem('p2p-mic-gain')
+            if (mg) setMicGain(parseFloat(mg))
+        }
+
         setSettingsLoaded(true)
     }
     loadSettings()
