@@ -19,7 +19,9 @@ function App() {
   const [rooms, setRooms] = useState<string[]>([])
   const [publicRooms, setPublicRooms] = useState<string[]>([])
   const [activeRoom, setActiveRoom] = useState<string | null>(null)
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null) // Camera + Mic
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null) // Screen Share
+  
   const [peers, setPeers] = useState<Map<string, PeerData>>(new Map())
   const [userName, setUserName] = useState<string>(() => {
     return localStorage.getItem('p2p-username') || `User ${Math.floor(Math.random() * 1000)}`
@@ -69,6 +71,7 @@ function App() {
   const peersRef = useRef<Map<string, PeerData>>(new Map())
   const peerPreferencesRef = useRef<Map<string, { camera: number, screen: number, audio: number }>>(new Map())
   const cameraStreamRef = useRef<MediaStream | null>(null) // Stores the original webcam stream
+  const screenStreamRef = useRef<MediaStream | null>(null) // Stores active screen stream
   const activeStreamRef = useRef<MediaStream | null>(null) // Stores the currently being sent stream (cam or screen)
   
   // Audio Processing Refs

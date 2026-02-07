@@ -10,6 +10,9 @@ import sodium from 'sodium-native'
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
 // Hint Electron to use Ozone platform (for native Wayland support if available)
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+// Additional flags to fix EGL_BAD_DISPLAY on Wayland
+app.commandLine.appendSwitch('enable-webrtc-pipewire-capturer')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
 
 // Admin Public Key for verifying room creation/deletion
 const ADMIN_PUBLIC_KEY_HEX = 'f2c0cca99b616ba0c69c2cc2895ccd979ff4f8a1c04de2dc01e2cd7528c59c0f'
