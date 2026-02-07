@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 
 export function useAudioActivity(stream: MediaStream | null, threshold: number = 0) {
   const [isSpeaking, setIsSpeaking] = useState(false)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
+  const thresholdRef = useRef(threshold)
+  
+  useEffect(() => {
+      thresholdRef.current = threshold
+  }, [threshold])
 
   useEffect(() => {
     if (!stream) {
@@ -18,58 +19,67 @@ export function useAudioActivity(stream: MediaStream | null, threshold: number =
       setIsSpeaking(false)
       return
     }
+    
+    // Check if track is enabled
+    if (!audioTracks[0].enabled) {
+         setIsSpeaking(false)
+         // We should probably still listen in case it gets enabled, but the stream object usually doesn't change when enabled changes...
+         // Actually, if track.enabled changes, we don't get a re-render unless we listen to it.
+         // But the hook depends on 'stream'.
+    }
+
+    let audioContext: AudioContext | null = null
+    let analyser: AnalyserNode | null = null
+    let source: MediaStreamAudioSourceNode | null = null
+    let animationFrameId: number
 
     const initAudio = async () => {
       try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
         if (!AudioContextClass) return
 
-        const audioContext = new AudioContextClass()
-        audioContextRef.current = audioContext
-
+        audioContext = new AudioContextClass()
         if (audioContext.state === 'suspended') {
             await audioContext.resume()
         }
 
-        const analyser = audioContext.createAnalyser()
-        analyser.fftSize = 512
-        analyser.smoothingTimeConstant = 0.3
-        analyserRef.current = analyser
-
-        const source = audioContext.createMediaStreamSource(stream)
+        analyser = audioContext.createAnalyser()
+        analyser.fftSize = 1024 
+        analyser.smoothingTimeConstant = 0.1 
+        
+        source = audioContext.createMediaStreamSource(stream)
         source.connect(analyser)
-        sourceRef.current = source
 
         const bufferLength = analyser.frequencyBinCount
-        const dataArray = new Uint8Array(bufferLength)
+        const dataArray = new Float32Array(bufferLength)
 
         const checkAudio = () => {
-          if (!analyserRef.current) return
+          if (!analyser) return
 
-          analyserRef.current.getByteTimeDomainData(dataArray)
+          // Use Float32 for better precision if available (TimeDomain)
+          analyser.getFloatTimeDomainData(dataArray)
 
           let sum = 0
           for (let i = 0; i < bufferLength; i++) {
-            const x = dataArray[i] - 128
+            const x = dataArray[i]
             sum += x * x
           }
           const rms = Math.sqrt(sum / bufferLength)
           
-          // Normalize RMS roughly to 0-100 range.
-          // Max RMS for a square wave is 128. Sine wave is ~90.
-          // Normal speech usually hovers around 5-20 RMS.
-          // We amplify it slightly for better UI mapping.
-          // Factor 2.5 means RMS 40 (loud speech) -> 100%.
-          const currentLevel = Math.min(100, rms * 2.5)
+          // Convert to roughly 0-100 scale.
+          // 0.01 RMS is usually ambient noise/quiet room.
+          // 0.05-0.1 is speaking.
+          // We map 0.05 -> 50 approx.
+          const currentLevel = Math.min(100, rms * 1000)
           
-          // If threshold is 0, we consider it "Always Open" (but still need minimal noise floor check)
-          // Let's say noise floor is 1%.
-          const effectiveThreshold = threshold === 0 ? 1 : threshold
+          // Noise Gate logic
+          // If threshold is 0 (Always On), we use a minimal noise floor of 5 (corresponds to 0.005 RMS)
+          // If threshold > 0, we use it directly.
+          const effectiveThreshold = thresholdRef.current <= 0 ? 5 : thresholdRef.current
           
-          const speaking = currentLevel > effectiveThreshold
+          setIsSpeaking(currentLevel > effectiveThreshold)
           
-          setIsSpeaking(speaking)
-          animationFrameRef.current = requestAnimationFrame(checkAudio)
+          animationFrameId = requestAnimationFrame(checkAudio)
         }
 
         checkAudio()
@@ -81,17 +91,17 @@ export function useAudioActivity(stream: MediaStream | null, threshold: number =
     initAudio()
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
       }
-      if (sourceRef.current) {
-        sourceRef.current.disconnect()
+      if (source) {
+        source.disconnect()
       }
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close()
       }
     }
-  }, [stream, threshold])
+  }, [stream])
 
   return isSpeaking
 }

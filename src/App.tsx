@@ -60,6 +60,9 @@ function App() {
   // Microphone Gain
   const [micGain, setMicGain] = useState<number>(1)
 
+  // Settings Loaded Flag
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+
   // We need a force update because Map mutation doesn't trigger re-render
   const [, setForceUpdate] = useState(0)
 
@@ -119,6 +122,8 @@ function App() {
   }, [selectedAudioDevice, selectedVideoDevice, selectedAudioOutputDevice])
 
   useEffect(() => {
+      if (!settingsLoaded) return
+
       bitratesOutgoingRef.current = { camera: cameraBitrate, screen: screenBitrate, audio: audioBitrate }
       
       // Save settings
@@ -134,9 +139,11 @@ function App() {
 
       // Apply to existing connections
       applyBitrateSettings()
-  }, [cameraBitrate, screenBitrate, audioBitrate])
+  }, [cameraBitrate, screenBitrate, audioBitrate, settingsLoaded])
 
   useEffect(() => {
+      if (!settingsLoaded) return
+
       bitratesIncomingRef.current = { camera: cameraBitrateIncoming, screen: screenBitrateIncoming, audio: audioBitrateIncoming }
 
       // Save settings
@@ -152,7 +159,7 @@ function App() {
 
       // Broadcast preferences because my incoming requirements changed
       broadcastBitratePreferences()
-  }, [cameraBitrateIncoming, screenBitrateIncoming, audioBitrateIncoming])
+  }, [cameraBitrateIncoming, screenBitrateIncoming, audioBitrateIncoming, settingsLoaded])
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -170,6 +177,7 @@ function App() {
 
         if (!window.electronAPI) {
             console.error("Electron API missing")
+            setSettingsLoaded(true)
             return
         }
 
@@ -225,6 +233,8 @@ function App() {
                 console.error("Failed to load public rooms", e)
             }
         }
+        
+        setSettingsLoaded(true)
     }
     loadSettings()
     
