@@ -17,6 +17,7 @@ type PeerData = {
 
 function App() {
   const [rooms, setRooms] = useState<string[]>([])
+  const [publicRooms, setPublicRooms] = useState<string[]>([])
   const [activeRoom, setActiveRoom] = useState<string | null>(null)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [peers, setPeers] = useState<Map<string, PeerData>>(new Map())
@@ -214,6 +215,16 @@ function App() {
             const audRateIn = await window.electronAPI.getStoreValue('p2p-bitrate-audio-in')
             if (audRateIn) setAudioBitrateIncoming(audRateIn)
         }
+        
+        // Load Public Rooms
+        if (window.electronAPI?.getPublicRooms) {
+            try {
+                const pubs = await window.electronAPI.getPublicRooms()
+                setPublicRooms(pubs)
+            } catch (e) {
+                console.error("Failed to load public rooms", e)
+            }
+        }
     }
     loadSettings()
     
@@ -225,6 +236,12 @@ function App() {
     window.electronAPI.onPeerConnected((_event, { peerId, initiator }) => {
       createPeer(peerId, initiator)
     })
+
+    if (window.electronAPI.onPublicRoomsUpdate) {
+        window.electronAPI.onPublicRoomsUpdate((_event, rooms) => {
+            setPublicRooms(rooms)
+        })
+    }
 
     window.electronAPI.onPeerData((_event, { peerId, message }) => {
       const peerData = peersRef.current.get(peerId)
@@ -728,6 +745,29 @@ function App() {
         }
     })
   }
+  
+  const handleCreatePublicRoom = async (name: string, password: string) => {
+      if (!name || !name.trim()) return
+      try {
+          const result = await window.electronAPI.createPublicRoom(name.trim(), password)
+          if (!result.success) {
+              setError(`Failed to create public room: ${result.error}`)
+          }
+      } catch (e: any) {
+          setError(`Error creating room: ${e.message}`)
+      }
+  }
+
+  const handleDeletePublicRoom = async (name: string, password: string) => {
+      try {
+          const result = await window.electronAPI.deletePublicRoom(name, password)
+          if (!result.success) {
+              setError(`Failed to delete public room: ${result.error}`)
+          }
+      } catch (e: any) {
+          setError(`Error deleting room: ${e.message}`)
+      }
+  }
 
   // Media Controls
   const toggleAudio = () => {
@@ -895,6 +935,9 @@ function App() {
         onSelectRoom={handleJoinRoom} 
         onDeleteRoom={handleDeleteRoom}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        publicRooms={publicRooms}
+        onCreatePublicRoom={handleCreatePublicRoom}
+        onDeletePublicRoom={handleDeletePublicRoom}
       />
       
       <div className="flex-1 flex flex-col min-w-0">

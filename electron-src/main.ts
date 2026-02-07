@@ -4,6 +4,12 @@ import fs from 'fs'
 import Hyperswarm from 'hyperswarm'
 import b4a from 'b4a'
 import crypto from 'crypto'
+import sodium from 'sodium-native'
+
+// Admin Public Key for verifying room creation/deletion
+const ADMIN_PUBLIC_KEY_HEX = 'f2c0cca99b616ba0c69c2cc2895ccd979ff4f8a1c04de2dc01e2cd7528c59c0f'
+const ADMIN_PUBLIC_KEY = b4a.from(ADMIN_PUBLIC_KEY_HEX, 'hex')
+const LOBBY_TOPIC = b4a.from(crypto.createHash('sha256').update('p2p-cord-lobby-v1').digest())
 
 process.env.DIST = path.join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(process.env.DIST, '../public')
@@ -12,6 +18,16 @@ let win: BrowserWindow | null
 // Map peerId -> socket
 const peers = new Map<string, any>()
 let swarm: any
+let lobbySwarm: any // Dedicated swarm for the lobby (or reuse main swarm with different topic management)
+
+// Public Rooms State: Map<RoomName, { timestamp, signature }>
+// We store more details to verify validity and allow gossip
+interface PublicRoomData {
+    name: string
+    timestamp: number
+    signature: string // Hex string
+}
+let publicRooms = new Map<string, PublicRoomData>()
 
 let screenShareCallback: ((response: Electron.Streams) => void) | null = null
 let pendingSources: Electron.DesktopCapturerSource[] = []
@@ -43,6 +59,44 @@ function setStore(key: string, value: any) {
     }
 }
 
+// Load public rooms from store on startup
+function loadPublicRooms() {
+    const stored = getStore()['public-rooms']
+    if (stored && Array.isArray(stored)) {
+        stored.forEach((r: PublicRoomData) => {
+            // Verify signature before loading? Ideally yes, but trusted local store is okay.
+            // We verify to be safe against corruption.
+            if (verifyRoomAction(r.name, r.timestamp, 'add', r.signature)) {
+                 publicRooms.set(r.name, r)
+            }
+        })
+    }
+}
+
+function savePublicRooms() {
+    const rooms = Array.from(publicRooms.values())
+    setStore('public-rooms', rooms)
+}
+
+function verifyRoomAction(name: string, timestamp: number, action: 'add' | 'delete', signatureHex: string): boolean {
+    try {
+        const msg = `${action}:${name}:${timestamp}`
+        const sig = b4a.from(signatureHex, 'hex')
+        const msgBuf = b4a.from(msg)
+        return sodium.crypto_sign_verify_detached(sig, msgBuf, ADMIN_PUBLIC_KEY)
+    } catch (e) {
+        console.error("Verification error", e)
+        return false
+    }
+}
+
+function signRoomAction(name: string, timestamp: number, action: 'add' | 'delete', secretKey: Buffer): string {
+    const msg = `${action}:${name}:${timestamp}`
+    const sig = Buffer.alloc(sodium.crypto_sign_BYTES)
+    sodium.crypto_sign_detached(sig, b4a.from(msg), secretKey)
+    return sig.toString('hex')
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1200,
@@ -60,6 +114,8 @@ function createWindow() {
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
+    // Send initial public rooms
+    win?.webContents.send('public-rooms-update', Array.from(publicRooms.keys()))
   })
   
   // Enable DevTools shortcut
@@ -122,6 +178,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
     if (swarm) swarm.destroy()
+    if (lobbySwarm) lobbySwarm.destroy()
   }
 })
 
@@ -130,14 +187,15 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(() => {
+  loadPublicRooms()
   createWindow()
   
-  // Initialize Hyperswarm
+  // Initialize Hyperswarm for Rooms
   swarm = new Hyperswarm()
   
   swarm.on('connection', (socket: any, info: any) => {
     const peerId = b4a.toString(socket.remotePublicKey, 'hex')
-    console.log('New peer connected:', peerId, 'Initiator:', info.client)
+    console.log('New peer connected (Room):', peerId, 'Initiator:', info.client)
     peers.set(peerId, socket)
     
     // Notify Renderer
@@ -151,7 +209,7 @@ app.whenReady().then(() => {
     })
 
     socket.on('close', () => {
-      console.log('Peer disconnected:', peerId)
+      console.log('Peer disconnected (Room):', peerId)
       peers.delete(peerId)
       win?.webContents.send('peer-disconnected', peerId)
     })
@@ -160,7 +218,91 @@ app.whenReady().then(() => {
         console.error('Socket error', err)
     })
   })
+
+  // Initialize Lobby Swarm
+  // We use a separate swarm instance or just join a different topic?
+  // Hyperswarm can handle multiple topics. But 'connection' event fires for all.
+  // We need to distinguish connections.
+  // Actually, Hyperswarm doesn't easily tell you WHICH topic a connection is for in the connection event directly without some mapping or handshake.
+  // But since we use one swarm for everything, we can just use a handshake protocol.
+  // HOWEVER, for simplicity, let's use a separate swarm for the Lobby to keep traffic separate.
+  lobbySwarm = new Hyperswarm()
+  
+  lobbySwarm.on('connection', (socket: any, info: any) => {
+      const peerId = b4a.toString(socket.remotePublicKey, 'hex')
+      console.log('New peer connected (Lobby):', peerId)
+      
+      // Send our known public rooms to the new peer
+      const roomList = Array.from(publicRooms.values()).map(r => ({
+          type: 'public-room-gossip',
+          action: 'add',
+          name: r.name,
+          timestamp: r.timestamp,
+          signature: r.signature
+      }))
+      
+      roomList.forEach(msg => {
+          socket.write(JSON.stringify(msg) + '\n')
+      })
+
+      socket.on('data', (data: Buffer) => {
+          try {
+              const lines = data.toString().split('\n')
+              for (const line of lines) {
+                  if (!line.trim()) continue
+                  const msg = JSON.parse(line)
+                  handleLobbyMessage(msg)
+              }
+          } catch (e) {
+              console.error("Lobby message error", e)
+          }
+      })
+  })
+
+  lobbySwarm.join(LOBBY_TOPIC, { client: true, server: true })
+  lobbySwarm.flush().then(() => console.log('Joined Lobby'))
 })
+
+function handleLobbyMessage(msg: any) {
+    if (msg.type === 'public-room-gossip') {
+        const { action, name, timestamp, signature } = msg
+        
+        if (action === 'add') {
+            if (verifyRoomAction(name, timestamp, 'add', signature)) {
+                // Check if we already have it or if it's newer/valid
+                const existing = publicRooms.get(name)
+                // We overwrite if we don't have it, or if this is valid (timestamps don't matter much for ADD unless we track updates, but for now just ADD)
+                // Actually, if we have a DELETE with a higher timestamp, we should ignore.
+                // But we don't store DELETEs indefinitely.
+                if (!existing) {
+                    publicRooms.set(name, { name, timestamp, signature })
+                    savePublicRooms()
+                    win?.webContents.send('public-rooms-update', Array.from(publicRooms.keys()))
+                }
+            }
+        } else if (action === 'delete') {
+             if (verifyRoomAction(name, timestamp, 'delete', signature)) {
+                 if (publicRooms.has(name)) {
+                     const existing = publicRooms.get(name)
+                     // Only delete if this delete is newer than the add?
+                     // We assume delete timestamp > add timestamp
+                     if (existing && timestamp > existing.timestamp) {
+                         publicRooms.delete(name)
+                         savePublicRooms()
+                         win?.webContents.send('public-rooms-update', Array.from(publicRooms.keys()))
+                     }
+                 }
+             }
+        }
+    }
+}
+
+function broadcastLobby(msg: any) {
+    const data = JSON.stringify(msg) + '\n'
+    for (const socket of lobbySwarm.connections) {
+        socket.write(data)
+    }
+}
 
 // IPC Handlers
 ipcMain.on('select-screen-source', (_event, sourceId) => {
@@ -241,3 +383,94 @@ ipcMain.handle('get-store-value', (_event, key) => {
 ipcMain.on('set-store-value', (_event, key, value) => {
     setStore(key, value)
 })
+
+// Public Room IPC Handlers
+ipcMain.handle('create-public-room', (_event, { name, password }) => {
+    try {
+        // 1. Derive Secret Key
+        const seed = Buffer.alloc(sodium.crypto_sign_SEEDBYTES)
+        sodium.crypto_generichash(seed, Buffer.from(password))
+        
+        const publicKey = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+        const secretKey = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
+        sodium.crypto_sign_seed_keypair(publicKey, secretKey, seed)
+
+        // 2. Verify Key matches Admin Public Key
+        // This ensures only the correct password works
+        if (!b4a.equals(publicKey, ADMIN_PUBLIC_KEY)) {
+            return { success: false, error: 'Invalid Admin Password' }
+        }
+
+        // 3. Create Signed Message
+        const timestamp = Date.now()
+        const signature = signRoomAction(name, timestamp, 'add', secretKey)
+
+        // 4. Update Local State
+        publicRooms.set(name, { name, timestamp, signature })
+        savePublicRooms()
+        
+        // 5. Broadcast
+        broadcastLobby({
+            type: 'public-room-gossip',
+            action: 'add',
+            name,
+            timestamp,
+            signature
+        })
+        
+        // 6. Notify Renderer
+        win?.webContents.send('public-rooms-update', Array.from(publicRooms.keys()))
+
+        return { success: true }
+    } catch (e: any) {
+        console.error("Create room failed", e)
+        return { success: false, error: e.message }
+    }
+})
+
+ipcMain.handle('delete-public-room', (_event, { name, password }) => {
+    try {
+        // 1. Derive Secret Key
+        const seed = Buffer.alloc(sodium.crypto_sign_SEEDBYTES)
+        sodium.crypto_generichash(seed, Buffer.from(password))
+        
+        const publicKey = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+        const secretKey = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
+        sodium.crypto_sign_seed_keypair(publicKey, secretKey, seed)
+
+        if (!b4a.equals(publicKey, ADMIN_PUBLIC_KEY)) {
+            return { success: false, error: 'Invalid Admin Password' }
+        }
+
+        const timestamp = Date.now()
+        const signature = signRoomAction(name, timestamp, 'delete', secretKey)
+
+        // 4. Update Local State
+        if (publicRooms.has(name)) {
+            publicRooms.delete(name)
+            savePublicRooms()
+        }
+        
+        // 5. Broadcast
+        broadcastLobby({
+            type: 'public-room-gossip',
+            action: 'delete',
+            name,
+            timestamp,
+            signature
+        })
+        
+        // 6. Notify Renderer
+        win?.webContents.send('public-rooms-update', Array.from(publicRooms.keys()))
+        
+        return { success: true }
+    } catch (e: any) {
+        console.error("Delete room failed", e)
+        return { success: false, error: e.message }
+    }
+})
+
+ipcMain.handle('get-public-rooms', () => {
+    return Array.from(publicRooms.keys())
+})
+

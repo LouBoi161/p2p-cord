@@ -23,6 +23,7 @@ export default defineConfig({
                 'electron/main',
                 'hyperswarm', 
                 'b4a',
+                'sodium-native',
                 'path',
                 'crypto',
                 'fs',

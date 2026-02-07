@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Plus, Hash, User, Settings, Copy, Trash2, Check } from 'lucide-react'
+import { Plus, Hash, User, Settings, Copy, Trash2, Check, Globe, Lock } from 'lucide-react'
+import { CreatePublicRoomModal, DeletePublicRoomModal } from './PublicRoomModals'
 
 interface SidebarProps {
   rooms: string[]
@@ -9,13 +10,24 @@ interface SidebarProps {
   onSelectRoom: (room: string) => void
   onDeleteRoom: (room: string) => void
   onOpenSettings: () => void
+
+  publicRooms: string[]
+  onCreatePublicRoom: (name: string, pass: string) => void
+  onDeletePublicRoom: (name: string, pass: string) => void
 }
 
-export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom, onDeleteRoom, onOpenSettings }: SidebarProps) {
+export function Sidebar({ 
+    rooms, activeRoom, userName, onJoinRoom, onSelectRoom, onDeleteRoom, onOpenSettings,
+    publicRooms, onCreatePublicRoom, onDeletePublicRoom
+}: SidebarProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [newRoomName, setNewRoomName] = useState('')
   const [copiedRoom, setCopiedRoom] = useState<string | null>(null)
   
+  // Public Room Modal States
+  const [isCreatePublicOpen, setIsCreatePublicOpen] = useState(false)
+  const [deletePublicRoomName, setDeletePublicRoomName] = useState<string | null>(null)
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (newRoomName.trim()) {
@@ -26,11 +38,8 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
   }
 
   const copyToClipboard = (text: string) => {
-      // Immediate visual feedback
       setCopiedRoom(text)
       setTimeout(() => setCopiedRoom(null), 2000)
-
-      // Logic
       try {
         if (window.electronAPI && window.electronAPI.copyToClipboard) {
             window.electronAPI.copyToClipboard(text)
@@ -44,59 +53,119 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
 
   return (
     <div className="w-64 bg-gray-900 flex flex-col h-full border-r border-gray-800">
-      <div className="p-4 border-b border-gray-800 font-bold text-xl text-indigo-500">
-        P2P Cord
+      <div className="p-4 border-b border-gray-800 font-bold text-xl text-indigo-500 flex items-center gap-2">
+        <span>P2P Cord</span>
       </div>
       
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {rooms.map(room => (
-          <div
-            key={room}
-            className={`group w-full flex items-center gap-1 rounded transition-colors pr-1 ${
-              activeRoom === room 
-                ? 'bg-gray-700 text-white' 
-                : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-            }`}
-          >
-            <button
-                type="button"
-                onClick={() => onSelectRoom(room)}
-                className="flex-1 min-w-0 text-left px-3 py-2 flex items-center gap-2 overflow-hidden outline-none focus:bg-gray-600 rounded"
-            >
-                <Hash size={18} className="shrink-0" />
-                <span className="truncate">{room}</span>
-            </button>
-            
-            <button
-                type="button"
-                onClick={(e) => { 
-                    e.preventDefault();
-                    e.stopPropagation(); 
-                    copyToClipboard(room);
-                }}
-                className={`relative z-20 shrink-0 p-2 rounded-full transition-all cursor-pointer active:scale-90 ${
-                    copiedRoom === room 
-                    ? 'text-green-500 bg-gray-800' 
-                    : 'text-gray-500 hover:text-white hover:bg-gray-600'
-                }`}
-                title="Copy Room ID"
-            >
-                {copiedRoom === room ? <Check size={14} className="pointer-events-none" /> : <Copy size={14} className="pointer-events-none" />}
-            </button>
-            <button
-                type="button"
-                onClick={(e) => { 
-                    e.preventDefault();
-                    e.stopPropagation(); 
-                    onDeleteRoom(room);
-                }}
-                className="relative z-20 shrink-0 p-2 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-full transition-all cursor-pointer active:scale-90"
-                title="Remove Room"
-            >
-                <Trash2 size={14} className="pointer-events-none" />
-            </button>
-          </div>
-        ))}
+      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        
+        {/* Public Rooms Section */}
+        <div>
+            <div className="px-2 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center justify-between group">
+                <span>Public Rooms</span>
+                <button 
+                    onClick={() => setIsCreatePublicOpen(true)}
+                    className="text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Create Public Room"
+                >
+                    <Plus size={14} />
+                </button>
+            </div>
+            <div className="space-y-1">
+                {publicRooms.map(room => (
+                    <div
+                        key={`public-${room}`}
+                        className={`group w-full flex items-center gap-1 rounded transition-colors pr-1 ${
+                        activeRoom === room 
+                            ? 'bg-indigo-900/50 text-indigo-200' 
+                            : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                        }`}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => onSelectRoom(room)}
+                            className="flex-1 min-w-0 text-left px-3 py-2 flex items-center gap-2 overflow-hidden outline-none focus:bg-gray-700/50 rounded"
+                        >
+                            <Globe size={16} className="shrink-0" />
+                            <span className="truncate font-medium">{room}</span>
+                        </button>
+                        
+                        <button
+                            type="button"
+                            onClick={(e) => { 
+                                e.preventDefault();
+                                e.stopPropagation(); 
+                                setDeletePublicRoomName(room);
+                            }}
+                            className="relative z-20 shrink-0 p-2 text-gray-600 hover:text-red-400 hover:bg-gray-700/50 rounded-full transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                            title="Delete Public Room (Admin)"
+                        >
+                            <Trash2 size={12} className="pointer-events-none" />
+                        </button>
+                    </div>
+                ))}
+                {publicRooms.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-gray-600 italic">No public rooms yet.</div>
+                )}
+            </div>
+        </div>
+
+        {/* Private/Saved Rooms Section */}
+        <div>
+            <div className="px-2 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center justify-between">
+                <span>My Rooms</span>
+            </div>
+            <div className="space-y-1">
+                {rooms.map(room => (
+                <div
+                    key={room}
+                    className={`group w-full flex items-center gap-1 rounded transition-colors pr-1 ${
+                    activeRoom === room 
+                        ? 'bg-gray-700 text-white' 
+                        : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                    }`}
+                >
+                    <button
+                        type="button"
+                        onClick={() => onSelectRoom(room)}
+                        className="flex-1 min-w-0 text-left px-3 py-2 flex items-center gap-2 overflow-hidden outline-none focus:bg-gray-600 rounded"
+                    >
+                        <Hash size={16} className="shrink-0" />
+                        <span className="truncate">{room}</span>
+                    </button>
+                    
+                    <button
+                        type="button"
+                        onClick={(e) => { 
+                            e.preventDefault();
+                            e.stopPropagation(); 
+                            copyToClipboard(room);
+                        }}
+                        className={`relative z-20 shrink-0 p-2 rounded-full transition-all cursor-pointer active:scale-90 ${
+                            copiedRoom === room 
+                            ? 'text-green-500 bg-gray-800' 
+                            : 'text-gray-500 hover:text-white hover:bg-gray-600 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title="Copy Room ID"
+                    >
+                        {copiedRoom === room ? <Check size={12} className="pointer-events-none" /> : <Copy size={12} className="pointer-events-none" />}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={(e) => { 
+                            e.preventDefault();
+                            e.stopPropagation(); 
+                            onDeleteRoom(room);
+                        }}
+                        className="relative z-20 shrink-0 p-2 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-full transition-all cursor-pointer active:scale-90 opacity-0 group-hover:opacity-100"
+                        title="Remove from My Rooms"
+                    >
+                        <Trash2 size={12} className="pointer-events-none" />
+                    </button>
+                </div>
+                ))}
+            </div>
+        </div>
       </div>
 
       <div className="p-4 border-t border-gray-800 space-y-2">
@@ -113,7 +182,7 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
             />
             <button
                type="button"
-               onMouseDown={() => setIsCreating(false)} // Use onMouseDown to prevent blur race condition
+               onMouseDown={() => setIsCreating(false)} 
                className="text-xs text-gray-400 hover:text-white"
             >
               Cancel
@@ -123,21 +192,10 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
           <>
             <button
               onClick={() => setIsCreating(true)}
-              className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded transition-colors text-sm font-medium"
             >
-              <Hash size={18} />
-              <span>Join Room</span>
-            </button>
-            <button
-              onClick={() => {
-                 // Generate random 9-character code (3 blocks of 3)
-                 const code = Math.random().toString(36).substring(2, 5) + '-' + Math.random().toString(36).substring(2, 5) + '-' + Math.random().toString(36).substring(2, 5)
-                 onJoinRoom(code.toUpperCase())
-              }}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded transition-colors"
-            >
-              <Plus size={18} />
-              <span>Create Room</span>
+              <Hash size={16} />
+              <span>Join Private Room</span>
             </button>
           </>
         )}
@@ -161,6 +219,21 @@ export function Sidebar({ rooms, activeRoom, userName, onJoinRoom, onSelectRoom,
               </button>
           </div>
       </div>
+
+      <CreatePublicRoomModal 
+        isOpen={isCreatePublicOpen} 
+        onClose={() => setIsCreatePublicOpen(false)}
+        onSubmit={onCreatePublicRoom}
+      />
+
+      <DeletePublicRoomModal
+        isOpen={!!deletePublicRoomName}
+        roomName={deletePublicRoomName || ''}
+        onClose={() => setDeletePublicRoomName(null)}
+        onSubmit={(pass) => {
+            if (deletePublicRoomName) onDeletePublicRoom(deletePublicRoomName, pass)
+        }}
+      />
     </div>
   )
 }

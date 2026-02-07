@@ -13,5 +13,11 @@ interface Window {
     setStoreValue: (key: string, value: any) => void
     onGetScreenSources: (callback: (event: any, sources: any[]) => void) => void
     selectScreenSource: (sourceId: string | null) => void
+    
+    // Public Rooms
+    createPublicRoom: (name: string, password: string) => Promise<{ success: boolean, error?: string }>
+    deletePublicRoom: (name: string, password: string) => Promise<{ success: boolean, error?: string }>
+    getPublicRooms: () => Promise<string[]>
+    onPublicRoomsUpdate: (callback: (event: any, rooms: string[]) => void) => void
   }
 }

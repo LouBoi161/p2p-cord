@@ -18,4 +18,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onGetScreenSources: (callback: (event: any, sources: any[]) => void) => 
       ipcRenderer.on('get-screen-sources', callback),
   selectScreenSource: (sourceId: string) => ipcRenderer.send('select-screen-source', sourceId),
+
+  // Public Rooms
+  createPublicRoom: (name: string, password: string) => ipcRenderer.invoke('create-public-room', { name, password }),
+  deletePublicRoom: (name: string, password: string) => ipcRenderer.invoke('delete-public-room', { name, password }),
+  getPublicRooms: () => ipcRenderer.invoke('get-public-rooms'),
+  onPublicRoomsUpdate: (callback: (event: any, rooms: string[]) => void) => 
+      ipcRenderer.on('public-rooms-update', callback),
 })
