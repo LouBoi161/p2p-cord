@@ -6,6 +6,11 @@ import b4a from 'b4a'
 import crypto from 'crypto'
 import sodium from 'sodium-native'
 
+// Enable PipeWire for WebRTC screen sharing on Wayland
+app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
+// Hint Electron to use Ozone platform (for native Wayland support if available)
+app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+
 // Admin Public Key for verifying room creation/deletion
 const ADMIN_PUBLIC_KEY_HEX = 'f2c0cca99b616ba0c69c2cc2895ccd979ff4f8a1c04de2dc01e2cd7528c59c0f'
 const ADMIN_PUBLIC_KEY = b4a.from(ADMIN_PUBLIC_KEY_HEX, 'hex')
