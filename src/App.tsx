@@ -161,6 +161,23 @@ function App() {
       broadcastBitratePreferences()
   }, [cameraBitrateIncoming, screenBitrateIncoming, audioBitrateIncoming, settingsLoaded])
 
+  // Save Audio Processing Settings
+  useEffect(() => {
+      if (!settingsLoaded) return
+      
+      localStorage.setItem('p2p-noise-suppression', String(noiseSuppression))
+      localStorage.setItem('p2p-echo-cancellation', String(echoCancellation))
+      localStorage.setItem('p2p-auto-gain', String(autoGainControl))
+      localStorage.setItem('p2p-vad-threshold', String(vadThreshold))
+
+      if (window.electronAPI?.setStoreValue) {
+          window.electronAPI.setStoreValue('p2p-noise-suppression', noiseSuppression)
+          window.electronAPI.setStoreValue('p2p-echo-cancellation', echoCancellation)
+          window.electronAPI.setStoreValue('p2p-auto-gain', autoGainControl)
+          window.electronAPI.setStoreValue('p2p-vad-threshold', vadThreshold)
+      }
+  }, [noiseSuppression, echoCancellation, autoGainControl, vadThreshold, settingsLoaded])
+
   useEffect(() => {
     const loadSettings = async () => {
         // Fallback or initial load from localStorage
@@ -174,6 +191,12 @@ function App() {
         setCameraBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-camera-in')) || 1500)
         setScreenBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-screen-in')) || 4000)
         setAudioBitrateIncoming(Number(localStorage.getItem('p2p-bitrate-audio-in')) || 64)
+
+        // Audio Processing defaults
+        setNoiseSuppression(localStorage.getItem('p2p-noise-suppression') !== 'false')
+        setEchoCancellation(localStorage.getItem('p2p-echo-cancellation') !== 'false')
+        setAutoGainControl(localStorage.getItem('p2p-auto-gain') !== 'false')
+        setVadThreshold(Number(localStorage.getItem('p2p-vad-threshold')) || 0)
 
         if (!window.electronAPI) {
             console.error("Electron API missing")
@@ -222,6 +245,19 @@ function App() {
 
             const audRateIn = await window.electronAPI.getStoreValue('p2p-bitrate-audio-in')
             if (audRateIn) setAudioBitrateIncoming(audRateIn)
+
+            // Audio Processing
+            const ns = await window.electronAPI.getStoreValue('p2p-noise-suppression')
+            if (ns !== undefined) setNoiseSuppression(ns)
+
+            const ec = await window.electronAPI.getStoreValue('p2p-echo-cancellation')
+            if (ec !== undefined) setEchoCancellation(ec)
+
+            const agc = await window.electronAPI.getStoreValue('p2p-auto-gain')
+            if (agc !== undefined) setAutoGainControl(agc)
+
+            const vad = await window.electronAPI.getStoreValue('p2p-vad-threshold')
+            if (vad !== undefined) setVadThreshold(vad)
         }
         
         // Load Public Rooms
@@ -334,10 +370,12 @@ function App() {
       })
   }
   
-  // Restart camera when devices change
+  // Restart camera when devices change OR audio settings change
   useEffect(() => {
-      startCamera(selectedAudioDevice, selectedVideoDevice)
-  }, [selectedAudioDevice, selectedVideoDevice])
+      if (settingsLoaded) {
+          startCamera(selectedAudioDevice, selectedVideoDevice)
+      }
+  }, [selectedAudioDevice, selectedVideoDevice, noiseSuppression, echoCancellation, autoGainControl, settingsLoaded])
 
   const handleSelectScreenSource = (id: string) => {
       window.electronAPI.selectScreenSource(id)
@@ -394,8 +432,8 @@ function App() {
       
       const createConstraints = (audioId?: string, videoId?: string) => ({
           audio: audioId 
-            ? { deviceId: { exact: audioId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
-            : { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            ? { deviceId: { exact: audioId }, echoCancellation, noiseSuppression, autoGainControl } 
+            : { echoCancellation, noiseSuppression, autoGainControl },
           video: videoId ? { deviceId: { exact: videoId } } : true
       })
 
@@ -428,7 +466,7 @@ function App() {
             try {
                 // Fallback to simple constraints (Audio + Video)
                 rawStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                    audio: { echoCancellation, noiseSuppression, autoGainControl }, 
                     video: true 
                 })
             } catch (retryErr: any) {
@@ -440,7 +478,7 @@ function App() {
                  try {
                      // Fallback to Audio ONLY
                      rawStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                        audio: { echoCancellation, noiseSuppression, autoGainControl }, 
                         video: false 
                     })
                     setIsVideoEnabled(false)
@@ -455,7 +493,7 @@ function App() {
             try {
                  // Try Audio ONLY as a last resort for other errors
                  rawStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
+                    audio: { echoCancellation, noiseSuppression, autoGainControl }, 
                     video: false 
                 })
                 setIsVideoEnabled(false)
