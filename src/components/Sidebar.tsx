@@ -197,6 +197,17 @@ export function Sidebar({
               <Hash size={16} />
               <span>Join Private Room</span>
             </button>
+            <button
+              onClick={() => {
+                 // Generate random 9-character code (3 blocks of 3)
+                 const code = Math.random().toString(36).substring(2, 5) + '-' + Math.random().toString(36).substring(2, 5) + '-' + Math.random().toString(36).substring(2, 5)
+                 onJoinRoom(code.toUpperCase())
+              }}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded transition-colors text-sm font-medium"
+            >
+              <Lock size={16} />
+              <span>Create Private Room</span>
+            </button>
           </>
         )}
       </div>
