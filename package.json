@@ -1,6 +1,6 @@
 {
   "name": "p2p-cord",
-  "version": "1.0.0-beta.20",
+  "version": "1.0.0-beta.21",
   "description": "",
   "main": "dist-electron/main.js",
   "scripts": {
