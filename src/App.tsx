@@ -864,39 +864,23 @@ function App() {
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
-      // Stop Screen Share -> Revert to Camera
       stopScreenShare()
     } else {
-      // Start Screen Share
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true })
-        const screenTrack = screenStream.getVideoTracks()[0]
+        setLocalScreenStream(screenStream)
+        screenStreamRef.current = screenStream
+        setIsScreenSharing(true)
         
-        screenTrack.onended = () => stopScreenShare() // Handle browser "Stop sharing" UI
+        screenStream.getVideoTracks()[0].onended = () => stopScreenShare()
 
-        if (activeStreamRef.current) {
-           const oldVideoTrack = activeStreamRef.current.getVideoTracks()[0]
-           
-           if (oldVideoTrack) {
-               // Replace track in all peers
-               for (const p of peersRef.current.values()) {
-                 p.peer.replaceTrack(oldVideoTrack, screenTrack, activeStreamRef.current)
-               }
-               activeStreamRef.current.removeTrack(oldVideoTrack)
-           } else {
-               // We are adding a video track where there was none
-               for (const p of peersRef.current.values()) {
-                   p.peer.addTrack(screenTrack, activeStreamRef.current)
-               }
-           }
-
-           activeStreamRef.current.addTrack(screenTrack)
-           setLocalStream(activeStreamRef.current)
-           setIsScreenSharing(true)
-           
-           // Ensure audio is still preserved from camera stream if needed (DisplayMedia might not have audio)
-           // If we want to keep mic audio, we just replaced the video track, so audio track should remain.
-        }
+        // Add stream to all peers
+        peersRef.current.forEach(p => {
+            if (p.peer.connected && !p.peer.destroyed) {
+                p.peer.addStream(screenStream)
+                p.peer.send(JSON.stringify({ type: 'stream-meta', streamId: screenStream.id, kind: 'screen' }))
+            }
+        })
       } catch (err) {
         console.error("Failed to share screen", err)
       }
@@ -904,40 +888,23 @@ function App() {
   }
 
   const stopScreenShare = () => {
-    if (!isScreenSharing || !cameraStreamRef.current || !activeStreamRef.current) return
+    if (!isScreenSharing || !screenStreamRef.current) return
 
-    const screenTrack = activeStreamRef.current.getVideoTracks()[0]
-    const cameraTrack = cameraStreamRef.current.getVideoTracks()[0]
-
-    if (screenTrack) {
-        if (cameraTrack) {
-            // Replace track in all peers
-            for (const p of peersRef.current.values()) {
-              p.peer.replaceTrack(screenTrack, cameraTrack, activeStreamRef.current)
-            }
-            activeStreamRef.current.removeTrack(screenTrack)
-            activeStreamRef.current.addTrack(cameraTrack)
-
-            // Restore video enabled state
-            if (!isVideoEnabled) {
-                cameraTrack.enabled = false
-            } else {
-                cameraTrack.enabled = true
-            }
-        } else {
-            // Revert to audio-only (remove video track)
-            for (const p of peersRef.current.values()) {
-                p.peer.removeTrack(screenTrack, activeStreamRef.current)
-            }
-            activeStreamRef.current.removeTrack(screenTrack)
+    const stream = screenStreamRef.current
+    
+    // Stop local tracks
+    stream.getTracks().forEach(t => t.stop())
+    
+    // Remove stream from peers
+    peersRef.current.forEach(p => {
+        if (p.peer.connected && !p.peer.destroyed) {
+            p.peer.removeStream(stream)
         }
-        
-        screenTrack.stop()
-    }
+    })
 
-    setLocalStream(activeStreamRef.current)
+    setLocalScreenStream(null)
+    screenStreamRef.current = null
     setIsScreenSharing(false)
-    // Force update to refresh video element
     setForceUpdate(n => n + 1)
   }
 
