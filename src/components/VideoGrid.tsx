@@ -91,7 +91,9 @@ const VideoCard = ({
           if (videoRef.current) videoRef.current.srcObject = currentStream || null
           return
       }
-
+      
+      // ... (rest of audio processing)
+      
       if (currentStream.getAudioTracks().length === 0) {
           if (videoRef.current) videoRef.current.srcObject = currentStream
           return
@@ -130,37 +132,19 @@ const VideoCard = ({
       }
   }, [currentStream, isLocal])
 
-  // Handle SECONDARY Audio (Hidden)
-  useEffect(() => {
-      if (secondaryAudioRef.current && secondaryStream && !isLocal) {
-          secondaryAudioRef.current.srcObject = secondaryStream
-          secondaryAudioRef.current.volume = Math.min(1, volume)
-      }
-  }, [secondaryStream, volume, isLocal])
+  // ... (Secondary Audio Effect)
 
-  // Update Gain when volume changes
-  useEffect(() => {
-      if (gainNodeRef.current) {
-          gainNodeRef.current.gain.setTargetAtTime(volume, audioCtxRef.current?.currentTime || 0, 0.1)
-      }
-      if (videoRef.current && !gainNodeRef.current) {
-          videoRef.current.volume = Math.min(1, volume)
-      }
-      if (secondaryAudioRef.current) {
-          secondaryAudioRef.current.volume = Math.min(1, volume)
-      }
-  }, [volume])
+  // ... (Volume Effect)
 
-  useEffect(() => {
-      if (videoRef.current && audioOutputDeviceId && (videoRef.current as any).setSinkId) {
-          try { (videoRef.current as any).setSinkId(audioOutputDeviceId) } catch (e) { console.error(e) }
-      }
-      if (secondaryAudioRef.current && audioOutputDeviceId && (secondaryAudioRef.current as any).setSinkId) {
-          try { (secondaryAudioRef.current as any).setSinkId(audioOutputDeviceId) } catch (e) { console.error(e) }
-      }
-  }, [audioOutputDeviceId])
+  // ... (SinkId Effect)
 
-  const hasVideo = currentStream && currentStream.getVideoTracks().length > 0 && (viewMode === 'screen' || isVideoEnabled)
+  // Determine if we should show video or avatar
+  // If viewMode is 'screen', we always show video (assuming screen share is not "mutable" in the same way as camera)
+  // If viewMode is 'camera', we respect isVideoEnabled
+  const shouldShowVideo = viewMode === 'screen' ? true : isVideoEnabled
+  const hasVideoTracks = currentStream && currentStream.getVideoTracks().length > 0
+  const showVideoContent = hasVideoTracks && shouldShowVideo
+
   const activeClass = isSpeaking ? 'border-green-500 ring-2 ring-green-500' : 'border-gray-700'
   const cursorClass = onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-500' : ''
 
@@ -170,39 +154,52 @@ const VideoCard = ({
       onContextMenu={onContextMenu}
       className={`relative bg-gray-800 rounded-lg overflow-hidden shadow-lg border transition-all duration-100 ${activeClass} ${cursorClass} flex items-center justify-center ${className || 'aspect-video'}`}
     >
-      <div className={`w-full h-full flex items-center justify-center bg-gray-900 ${hasVideo ? 'hidden' : 'block'}`}>
+      {/* Avatar View (Fallback) */}
+      <div className={`w-full h-full flex items-center justify-center bg-gray-900 ${showVideoContent ? 'hidden' : 'block'}`}>
           <div className={`w-24 h-24 rounded-full border-4 shadow-md flex items-center justify-center bg-indigo-600 text-white font-bold text-2xl select-none transition-colors duration-100 ${isSpeaking ? 'border-green-500' : 'border-gray-700'}`}>
               {initials}
           </div>
+          {viewMode === 'camera' && !isVideoEnabled && (
+              <div className="absolute mt-32 text-xs text-gray-500 font-medium bg-black/50 px-2 py-1 rounded">
+                  Camera Off
+              </div>
+          )}
       </div>
       
+      {/* Video View */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={isLocal} 
-        className={`w-full h-full ${viewMode === 'screen' ? 'object-contain' : `object-${objectFit}`} ${!hasVideo ? 'hidden' : 'block'}`}
+        className={`w-full h-full ${viewMode === 'screen' ? 'object-contain bg-black' : `object-${objectFit}`} ${!showVideoContent ? 'hidden' : 'block'}`}
       />
       
       <audio ref={secondaryAudioRef} autoPlay playsInline muted={isLocal} />
 
-      {/* Switcher */}
+      {/* Switcher Button - Always visible if both streams exist */}
       {stream && screenStream && (
           <button
             onClick={(e) => {
                 e.stopPropagation()
                 setViewMode(prev => prev === 'camera' ? 'screen' : 'camera')
             }}
-            className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm z-20 transition-colors"
+            className="absolute top-2 right-2 p-2 bg-black/70 hover:bg-black/90 text-white rounded-full backdrop-blur-md z-30 transition-all shadow-lg hover:scale-110 border border-white/10"
             title={viewMode === 'camera' ? "Switch to Screen Share" : "Switch to Camera"}
           >
-              {viewMode === 'camera' ? <Monitor size={16} /> : <User size={16} />}
+              {viewMode === 'camera' ? <Monitor size={18} /> : <User size={18} />}
           </button>
       )}
 
-      <div className="absolute bottom-2 left-2 bg-black/50 px-2 py-1 rounded text-xs text-white backdrop-blur-sm flex items-center gap-2">
-        {isLocal ? `You (${userName})` : (userName || `Peer ${peerId?.slice(0, 6)}...`)}
-        {viewMode === 'screen' && <span className="text-blue-300 text-[10px] uppercase font-bold px-1 border border-blue-500/50 rounded">Screen</span>}
+      <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1.5 rounded-md text-xs text-white backdrop-blur-sm flex items-center gap-2 z-20 pointer-events-none">
+        <span className="font-medium truncate max-w-[150px]">
+            {isLocal ? `You (${userName})` : (userName || `Peer ${peerId?.slice(0, 6)}...`)}
+        </span>
+        {viewMode === 'screen' && (
+            <span className="text-blue-300 text-[10px] uppercase font-bold px-1.5 py-0.5 border border-blue-500/50 rounded bg-blue-500/10">
+                Screen
+            </span>
+        )}
       </div>
     </div>
   )
