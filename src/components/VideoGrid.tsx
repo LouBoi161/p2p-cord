@@ -1,19 +1,28 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { useAudioActivity } from '../hooks/useAudioActivity'
+import { Monitor, User } from 'lucide-react'
 
 interface VideoGridProps {
   localStream: MediaStream | null
+  localScreenStream?: MediaStream | null
   localVideoEnabled: boolean
   localUserName: string
   audioOutputDeviceId?: string
-  peers: { peerId: string; stream: MediaStream; userName?: string; isVideoEnabled?: boolean }[]
+  peers: { 
+      peerId: string; 
+      stream?: MediaStream; // Camera
+      screenStream?: MediaStream; // Screen
+      userName?: string; 
+      isVideoEnabled?: boolean 
+  }[]
   micGain?: number
   onMicGainChange?: (val: number) => void
   vadThreshold?: number
 }
 
 interface VideoCardProps {
-  stream: MediaStream | null
+  stream?: MediaStream
+  screenStream?: MediaStream
   isLocal?: boolean
   peerId?: string
   userName?: string
@@ -29,6 +38,7 @@ interface VideoCardProps {
 
 const VideoCard = ({
   stream,
+  screenStream,
   isLocal = false,
   peerId,
   userName,
@@ -43,7 +53,7 @@ const VideoCard = ({
 }: VideoCardProps) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const effectiveThreshold = isLocal ? vadThreshold : 1
-  const isSpeaking = useAudioActivity(stream, effectiveThreshold)
+  const isSpeaking = useAudioActivity(stream || screenStream || null, effectiveThreshold)
   
   // Audio Processing Refs for Volume Amplification
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -51,9 +61,20 @@ const VideoCard = ({
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const destNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null)
   
-  // Use a stable identifier for the avatar
-  const avatarSeed = userName || peerId || 'default'
+  // View State (Camera vs Screen)
+  const [viewMode, setViewMode] = useState<'camera' | 'screen'>(screenStream ? 'screen' : 'camera')
+
+  useEffect(() => {
+      if (screenStream) setViewMode('screen')
+      else setViewMode('camera')
+  }, [screenStream])
+
+  const currentStream = viewMode === 'screen' ? screenStream : stream
   
+  // For dual audio (hearing mic while watching screen), we need a second audio element
+  const secondaryStream = viewMode === 'screen' ? stream : (screenStream?.getAudioTracks().length ? screenStream : null)
+  const secondaryAudioRef = useRef<HTMLAudioElement>(null)
+
   const getInitials = (name: string) => {
       const cleanName = name.replace(/[^a-zA-Z0-9 ]/g, '')
       const parts = cleanName.trim().split(/\s+/)
@@ -64,16 +85,15 @@ const VideoCard = ({
   
   const initials = getInitials(userName || peerId || '?')
 
-  // Handle Audio Processing (Volume > 100%)
+  // Handle PRIMARY Audio/Video
   useEffect(() => {
-      if (!stream || isLocal) {
-          // For local user, we rely on the muted prop and don't process audio to avoid feedback loops
-          if (videoRef.current) videoRef.current.srcObject = stream
+      if (!currentStream || isLocal) {
+          if (videoRef.current) videoRef.current.srcObject = currentStream || null
           return
       }
 
-      if (stream.getAudioTracks().length === 0) {
-          if (videoRef.current) videoRef.current.srcObject = stream
+      if (currentStream.getAudioTracks().length === 0) {
+          if (videoRef.current) videoRef.current.srcObject = currentStream
           return
       }
 
@@ -89,15 +109,14 @@ const VideoCard = ({
       const dest = ctx.createMediaStreamDestination()
       destNodeRef.current = dest
       
-      const source = ctx.createMediaStreamSource(stream)
+      const source = ctx.createMediaStreamSource(currentStream)
       source.connect(gain)
       gain.connect(dest)
       sourceNodeRef.current = source
       
-      // Merge amplified audio with original video
       const processedStream = new MediaStream([
           dest.stream.getAudioTracks()[0],
-          ...stream.getVideoTracks()
+          ...currentStream.getVideoTracks()
       ])
       
       if (videoRef.current) {
@@ -109,27 +128,39 @@ const VideoCard = ({
           if (gainNodeRef.current) gainNodeRef.current.disconnect()
           if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') audioCtxRef.current.close()
       }
-  }, [stream, isLocal]) // Re-run if stream changes
+  }, [currentStream, isLocal])
+
+  // Handle SECONDARY Audio (Hidden)
+  useEffect(() => {
+      if (secondaryAudioRef.current && secondaryStream && !isLocal) {
+          secondaryAudioRef.current.srcObject = secondaryStream
+          secondaryAudioRef.current.volume = Math.min(1, volume)
+      }
+  }, [secondaryStream, volume, isLocal])
 
   // Update Gain when volume changes
   useEffect(() => {
       if (gainNodeRef.current) {
-          // Smooth transition
           gainNodeRef.current.gain.setTargetAtTime(volume, audioCtxRef.current?.currentTime || 0, 0.1)
+      }
+      if (videoRef.current && !gainNodeRef.current) {
+          videoRef.current.volume = Math.min(1, volume)
+      }
+      if (secondaryAudioRef.current) {
+          secondaryAudioRef.current.volume = Math.min(1, volume)
       }
   }, [volume])
 
   useEffect(() => {
       if (videoRef.current && audioOutputDeviceId && (videoRef.current as any).setSinkId) {
-          try {
-             (videoRef.current as any).setSinkId(audioOutputDeviceId)
-          } catch (e) {
-              console.error('Failed to set audio output device', e)
-          }
+          try { (videoRef.current as any).setSinkId(audioOutputDeviceId) } catch (e) { console.error(e) }
+      }
+      if (secondaryAudioRef.current && audioOutputDeviceId && (secondaryAudioRef.current as any).setSinkId) {
+          try { (secondaryAudioRef.current as any).setSinkId(audioOutputDeviceId) } catch (e) { console.error(e) }
       }
   }, [audioOutputDeviceId])
 
-  const showVideo = isVideoEnabled && !!stream
+  const hasVideo = currentStream && currentStream.getVideoTracks().length > 0 && (viewMode === 'screen' || isVideoEnabled)
   const activeClass = isSpeaking ? 'border-green-500 ring-2 ring-green-500' : 'border-gray-700'
   const cursorClass = onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-500' : ''
 
@@ -139,26 +170,45 @@ const VideoCard = ({
       onContextMenu={onContextMenu}
       className={`relative bg-gray-800 rounded-lg overflow-hidden shadow-lg border transition-all duration-100 ${activeClass} ${cursorClass} flex items-center justify-center ${className || 'aspect-video'}`}
     >
-      <div className={`w-full h-full flex items-center justify-center bg-gray-900 ${showVideo ? 'hidden' : 'block'}`}>
+      <div className={`w-full h-full flex items-center justify-center bg-gray-900 ${hasVideo ? 'hidden' : 'block'}`}>
           <div className={`w-24 h-24 rounded-full border-4 shadow-md flex items-center justify-center bg-indigo-600 text-white font-bold text-2xl select-none transition-colors duration-100 ${isSpeaking ? 'border-green-500' : 'border-gray-700'}`}>
               {initials}
           </div>
       </div>
+      
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={isLocal} 
-        className={`w-full h-full object-${objectFit} ${!showVideo ? 'hidden' : 'block'}`}
+        className={`w-full h-full ${viewMode === 'screen' ? 'object-contain' : `object-${objectFit}`} ${!hasVideo ? 'hidden' : 'block'}`}
       />
+      
+      <audio ref={secondaryAudioRef} autoPlay playsInline muted={isLocal} />
+
+      {/* Switcher */}
+      {stream && screenStream && (
+          <button
+            onClick={(e) => {
+                e.stopPropagation()
+                setViewMode(prev => prev === 'camera' ? 'screen' : 'camera')
+            }}
+            className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-sm z-20 transition-colors"
+            title={viewMode === 'camera' ? "Switch to Screen Share" : "Switch to Camera"}
+          >
+              {viewMode === 'camera' ? <Monitor size={16} /> : <User size={16} />}
+          </button>
+      )}
+
       <div className="absolute bottom-2 left-2 bg-black/50 px-2 py-1 rounded text-xs text-white backdrop-blur-sm flex items-center gap-2">
         {isLocal ? `You (${userName})` : (userName || `Peer ${peerId?.slice(0, 6)}...`)}
+        {viewMode === 'screen' && <span className="text-blue-300 text-[10px] uppercase font-bold px-1 border border-blue-500/50 rounded">Screen</span>}
       </div>
     </div>
   )
 }
 
-export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers, audioOutputDeviceId, micGain = 1, onMicGainChange, vadThreshold = 0 }: VideoGridProps) {
+export function VideoGrid({ localStream, localScreenStream, localVideoEnabled, localUserName, peers, audioOutputDeviceId, micGain = 1, onMicGainChange, vadThreshold = 0 }: VideoGridProps) {
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const [volumes, setVolumes] = useState<Record<string, number>>({})
@@ -209,13 +259,10 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
   const handleVolumeChange = (peerId: string, val: number) => {
     setVolumes(prev => {
         const newVolumes = { ...prev, [peerId]: val }
-        
-        // Save to storage
         localStorage.setItem('p2p-peer-volumes', JSON.stringify(newVolumes))
         if (window.electronAPI?.setStoreValue) {
             window.electronAPI.setStoreValue('p2p-peer-volumes', newVolumes)
         }
-        
         return newVolumes
     })
   }
@@ -230,7 +277,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
   const focusedData = useMemo(() => {
     if (focusedId === 'local') {
       return {
-        stream: localStream,
+        stream: localStream || undefined,
+        screenStream: localScreenStream || undefined,
         userName: localUserName,
         isLocal: true,
         isVideoEnabled: localVideoEnabled,
@@ -242,6 +290,7 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
     if (peer) {
       return {
         stream: peer.stream,
+        screenStream: peer.screenStream,
         userName: peer.userName,
         isLocal: false,
         isVideoEnabled: peer.isVideoEnabled,
@@ -249,7 +298,7 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
       }
     }
     return null
-  }, [focusedId, localStream, localUserName, localVideoEnabled, peers, vadThreshold])
+  }, [focusedId, localStream, localScreenStream, localUserName, localVideoEnabled, peers, vadThreshold])
 
   useEffect(() => {
     if (focusedData && overlayRef.current) {
@@ -269,7 +318,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
     <>
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 w-full h-full content-start overflow-y-auto">
         <VideoCard 
-          stream={localStream} 
+          stream={localStream || undefined}
+          screenStream={localScreenStream || undefined} 
           isLocal 
           isVideoEnabled={localVideoEnabled}
           userName={localUserName}
@@ -282,7 +332,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
         {peers.map(peer => (
           <VideoCard 
             key={peer.peerId} 
-            stream={peer.stream} 
+            stream={peer.stream}
+            screenStream={peer.screenStream} 
             peerId={peer.peerId} 
             userName={peer.userName}
             isVideoEnabled={peer.isVideoEnabled}
@@ -292,9 +343,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
             volume={volumes[peer.peerId] ?? 1}
           />
         ))}
-        {peers.length === 0 && !localStream && (
+        {peers.length === 0 && !localStream && !localScreenStream && (
           <div className="col-span-full flex items-center justify-center h-64 text-gray-500 hidden">
-             {/* Fallback hidden because we always show local user now */}
           </div>
         )}
       </div>
@@ -358,6 +408,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
                             const val = parseFloat(e.target.value)
                             if (contextMenu.isLocal && onMicGainChange) {
                                 onMicGainChange(val)
+                            } else {
+                                handleVolumeChange(contextMenu.peerId, val)
                             }
                         }}
                         className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
