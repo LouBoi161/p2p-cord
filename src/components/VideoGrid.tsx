@@ -42,11 +42,16 @@ const VideoCard = ({
   vadThreshold = 0
 }: VideoCardProps) => {
   const videoRef = useRef<HTMLVideoElement>(null)
-  // Use local threshold for local user, default sensitive threshold for remote
   const effectiveThreshold = isLocal ? vadThreshold : 1
   const isSpeaking = useAudioActivity(stream, effectiveThreshold)
   
-  // Use a stable identifier for the avatar (userName or peerId)
+  // Audio Processing Refs for Volume Amplification
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const destNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null)
+  
+  // Use a stable identifier for the avatar
   const avatarSeed = userName || peerId || 'default'
   
   const getInitials = (name: string) => {
@@ -59,16 +64,59 @@ const VideoCard = ({
   
   const initials = getInitials(userName || peerId || '?')
 
+  // Handle Audio Processing (Volume > 100%)
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream
-    }
-  }, [stream])
+      if (!stream || isLocal) {
+          // For local user, we rely on the muted prop and don't process audio to avoid feedback loops
+          if (videoRef.current) videoRef.current.srcObject = stream
+          return
+      }
 
+      if (stream.getAudioTracks().length === 0) {
+          if (videoRef.current) videoRef.current.srcObject = stream
+          return
+      }
+
+      // Initialize Web Audio
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+      const ctx = new AudioContextClass()
+      audioCtxRef.current = ctx
+      
+      const gain = ctx.createGain()
+      gain.gain.value = volume
+      gainNodeRef.current = gain
+      
+      const dest = ctx.createMediaStreamDestination()
+      destNodeRef.current = dest
+      
+      const source = ctx.createMediaStreamSource(stream)
+      source.connect(gain)
+      gain.connect(dest)
+      sourceNodeRef.current = source
+      
+      // Merge amplified audio with original video
+      const processedStream = new MediaStream([
+          dest.stream.getAudioTracks()[0],
+          ...stream.getVideoTracks()
+      ])
+      
+      if (videoRef.current) {
+          videoRef.current.srcObject = processedStream
+      }
+      
+      return () => {
+          if (sourceNodeRef.current) sourceNodeRef.current.disconnect()
+          if (gainNodeRef.current) gainNodeRef.current.disconnect()
+          if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') audioCtxRef.current.close()
+      }
+  }, [stream, isLocal]) // Re-run if stream changes
+
+  // Update Gain when volume changes
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.volume = Math.min(1, volume)
-    }
+      if (gainNodeRef.current) {
+          // Smooth transition
+          gainNodeRef.current.gain.setTargetAtTime(volume, audioCtxRef.current?.currentTime || 0, 0.1)
+      }
   }, [volume])
 
   useEffect(() => {
@@ -100,7 +148,7 @@ const VideoCard = ({
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal} // Mute local video to avoid feedback
+        muted={isLocal} 
         className={`w-full h-full object-${objectFit} ${!showVideo ? 'hidden' : 'block'}`}
       />
       <div className="absolute bottom-2 left-2 bg-black/50 px-2 py-1 rounded text-xs text-white backdrop-blur-sm flex items-center gap-2">
@@ -271,15 +319,13 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
                     <input 
                         type="range" 
                         min="0" 
-                        max={contextMenu.isLocal ? "5" : "1"}
+                        max="5"
                         step="0.01"
                         value={contextMenu.isLocal ? micGain : (volumes[contextMenu.peerId] ?? 1)}
                         onChange={(e) => {
                             const val = parseFloat(e.target.value)
                             if (contextMenu.isLocal && onMicGainChange) {
                                 onMicGainChange(val)
-                            } else {
-                                handleVolumeChange(contextMenu.peerId, val)
                             }
                         }}
                         className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
@@ -290,8 +336,8 @@ export function VideoGrid({ localStream, localVideoEnabled, localUserName, peers
                 </div>
                 <div className="flex justify-between text-[10px] text-gray-600 mt-1 px-1">
                     <span>{contextMenu.isLocal ? '0%' : 'Mute'}</span>
-                    <span>{contextMenu.isLocal ? '250%' : '50%'}</span>
-                    <span>{contextMenu.isLocal ? '500%' : '100%'}</span>
+                    <span>250%</span>
+                    <span>500%</span>
                 </div>
             </div>
         </div>
